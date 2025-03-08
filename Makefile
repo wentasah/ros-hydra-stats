@@ -18,7 +18,7 @@ eval.json:
 
 builds: eval.json
 	mkdir -p $@.tmp
-	jq '.builds[]' $< | rush --eta -r1 "$(CURL) $(HYDRA)/build/{} -o $@.tmp/{}.json -sS"
+	jq '.builds[]' $< | rush --eta -r1 "$(CURL) -m10 $(HYDRA)/build/{} -o $@.tmp/{}.json -sS"
 	mv $@.tmp $@
 
 nix-ros-overlay: eval.json

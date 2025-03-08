@@ -5,16 +5,16 @@ HYDRA = https://hydra.iid.ciirc.cvut.cz
 
 EVAL =
 
-#ifneq ($(EVAL),)
+ifneq ($(EVAL),)
 eval.json:
 	$(CURL) $(HYDRA)/eval/$(EVAL) > $@
-# else
-# evals.json:
-# 	$(CURL) $(HYDRA)/jobset/nix-ros-experiments/wentasah-test/evals > $@
+else
+evals.json:
+	$(CURL) $(HYDRA)/jobset/nix-ros-experiments/wentasah-test/evals > $@
 
-# eval.json: evals.json
-# 	jq '.evals[0]' $< > $@
-# endif
+eval.json: evals.json
+	jq '.evals[0]' $< > $@
+endif
 
 builds: eval.json
 	mkdir -p $@.tmp
@@ -29,8 +29,8 @@ jobs.jsonl: nix-ros-overlay
 	nix-eval-jobs --expr '(import ./$< {}).rosPackages' > $@.tmp
 	mv $@.tmp $@
 
-failed-builds.txt: builds
-	jq -r 'select(.buildstatus != 0)|.id' $</*.json > $@
+failed-builds.txt: builds eval.json
+	jq '.builds[]|"builds/\(.).json"' eval.json | xargs jq -r 'select(.buildstatus != 0)|.id' > $@
 
 failed-use-count.jsonl: failed-builds.txt jobs.jsonl
 	rush --eta -k "jq --slurpfile build builds/{}.json -cs '\$$build[0] as \$$b|{job: \$$b.job, drv: \$$b.drvpath, id: \$$b.id, count: [.[]|select(.inputDrvs|has(\$$b.drvpath)).attr]|length}' jobs.jsonl" < failed-builds.txt > $@

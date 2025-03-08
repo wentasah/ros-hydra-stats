@@ -29,11 +29,17 @@ jobs.jsonl: nix-ros-overlay
 	nix-eval-jobs --expr '(import ./$< {}).rosPackages' > $@.tmp
 	mv $@.tmp $@
 
+jobs.json: jobs.jsonl
+	jq -s . $< > $@
+
 failed-builds.txt: builds eval.json
 	jq '.builds[]|"builds/\(.).json"' eval.json | xargs jq -r 'select(.buildstatus != 0)|.id' > $@
 
-failed-use-count.jsonl: failed-builds.txt jobs.jsonl
-	rush --eta -k "jq --slurpfile build builds/{}.json -cs '\$$build[0] as \$$b|{job: \$$b.job, drv: \$$b.drvpath, id: \$$b.id, count: [.[]|select(.inputDrvs|has(\$$b.drvpath)).attr]|length}' jobs.jsonl" < failed-builds.txt > $@
+failed-use-count.jsonl: failed-builds.txt jobs.json
+	rush --eta -k "jq --slurpfile build builds/{}.json -cs \
+	--argjson dep_counts \"\$$(./dependent-jobs.py jobs.json builds/{}.json)\" \
+	'\$$build[0] as \$$b|{job: \$$b.job, drv: \$$b.drvpath, id: \$$b.id, count: \$$dep_counts[0], rec_count: \$$dep_counts|last}' jobs.jsonl" \
+	< failed-builds.txt > $@
 
 failed-use-count-sorted.json: failed-use-count.jsonl
-	jq -cs 'sort_by(.count)|.[]|{job,count,url: "$(HYDRA)/build/\(.id)"}' $<
+	jq -cs 'sort_by(.rec_count)|.[]|{job,count,rec_count,url: "$(HYDRA)/build/\(.id)"}' $<

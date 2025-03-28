@@ -1,4 +1,4 @@
-.DEFAULT_GOAL = failed-use-count-sorted.json
+.DEFAULT_GOAL = view
 
 CURL = curl -H 'Accept: application/json'
 HYDRA = https://hydra.iid.ciirc.cvut.cz
@@ -46,4 +46,7 @@ failed-use-count.jsonl: failed-builds.txt jobs.json
 	< failed-builds.txt > $@
 
 failed-use-count-sorted.json: failed-use-count.jsonl
-	jq -cs 'sort_by(.rec_count)|.[]|{job,count,rec_count,url: "$(HYDRA)/build/\(.id)"}' $<
+	jq -cs '[sort_by(.rec_count * -1)|.[]|{job,count,rec_count,url: "$(HYDRA)/build/\(.id)"}]' $< | sponge $@
+
+view: failed-use-count-sorted.json
+	jq -c 'sort_by(.rec_count)|.[]' $<

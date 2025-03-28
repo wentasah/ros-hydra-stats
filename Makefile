@@ -22,7 +22,11 @@ builds: eval.json
 	mv $@.tmp $@
 
 nix-ros-overlay: eval.json
-	set -x; git clone $$(jq -r '.jobsetevalinputs."nix-ros-overlay".uri' $<) $@
+	set -x; if [ ! -d $@ ]; then \
+		git clone $$(jq -r '.jobsetevalinputs."nix-ros-overlay".uri' $<) $@; \
+	else \
+		git -C $@ fetch $$(jq -r '.jobsetevalinputs."nix-ros-overlay"|.uri,.revision' $<); \
+	fi
 	set -x; git -C $@ switch --detach $$(jq -r '.jobsetevalinputs."nix-ros-overlay".revision' $<)
 
 jobs.jsonl: nix-ros-overlay

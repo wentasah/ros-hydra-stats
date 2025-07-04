@@ -30,7 +30,7 @@ nix-ros-overlay: eval.json
 	set -x; git -C $@ switch --detach $$(jq -r '.jobsetevalinputs."nix-ros-overlay".revision' $<)
 
 jobs.jsonl: nix-ros-overlay
-	nix-eval-jobs --expr '(import ./$< {}).rosPackages' > $@.tmp
+	nix-eval-jobs --show-input-drvs --expr '(import ./$< {}).rosPackages' > $@.tmp
 	mv $@.tmp $@
 
 jobs.json: jobs.jsonl

@@ -17,9 +17,8 @@ eval.json: evals.json
 endif
 
 builds: eval.json
-	mkdir -p $@.tmp
-	jq '.builds[]' $< | rush --eta -r1 "$(CURL) -m10 $(HYDRA)/build/{} -o $@.tmp/{}.json -sS"
-	mv $@.tmp $@
+	mkdir -p $@
+	jq '.builds[]' $< | rush --eta -r5 --retry-interval 1 "[[ -e $@/{}.json ]] || $(CURL) -m10 $(HYDRA)/build/{} -o $@/{}.json -sS"
 
 nix-ros-overlay: eval.json
 	set -x; if [ ! -d $@ ]; then \

@@ -1,4 +1,4 @@
-use anyhow::bail;
+use anyhow::{bail, Context};
 use futures::stream::{self, StreamExt};
 use indicatif::{ProgressBar, ProgressIterator, ProgressStyle};
 use serde::Serialize;
@@ -121,11 +121,17 @@ fn dependent_job_counts(build: &JsonValue, jobs: &HashMap<&str, Vec<&str>>) -> V
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let eval_id = 6104;
+    let mut args = std::env::args();
+    let prog = args.next().context("Prog name")?;
+    let eval_id = args
+        .next()
+        .context(format!("Usage: {prog} <eval_id>"))?
+        .parse::<usize>()
+        .context("Invalid eval id")?;
 
     let hydra = Arc::new(Hydra::new());
 
-    eprintln!("Fetching hydra evaluation...");
+    eprintln!("Fetching hydra evaluation {eval_id}...");
     let eval = hydra.get(format!("eval/{eval_id}").as_str()).await?;
 
     eprintln!("Fetching builds from the evaluation...");
@@ -155,7 +161,7 @@ async fn main() -> anyhow::Result<()> {
         .expect("No nix-ros-overlay.revision in eval");
     let tarball = format!("{url}/archive/{rev}.tar.gz");
 
-    eprintln!("Evaluating jobs...");
+    eprintln!("Evaluating jobs in {tarball}...");
     let jobs = nix_eval_jobs(&tarball).await?;
 
     eprintln!("Calculating reverse dependencies...");

@@ -43,8 +43,15 @@ impl Hydra {
     }
 }
 
-async fn nix_eval_jobs(tarball: &str) -> anyhow::Result<Vec<JsonValue>> {
-    let cache_path = format!("{CACHE_DIR}/{}.jsonl", tarball.replace("/", "_"));
+async fn nix_eval_jobs(
+    tarball: &str,
+    system: &str,
+    cross_system: Option<&str>,
+) -> anyhow::Result<Vec<JsonValue>> {
+    let cache_path = format!(
+        "{CACHE_DIR}/{}_{system}_{cross_system:?}.jsonl",
+        tarball.replace("/", "_"),
+    );
     let jobs = if let Ok(cached) = fs::read_to_string(&cache_path).await {
         cached
             .lines()
@@ -57,7 +64,8 @@ async fn nix_eval_jobs(tarball: &str) -> anyhow::Result<Vec<JsonValue>> {
             .args([
                 "--show-input-drvs",
                 "--expr",
-                format!("(import (fetchTarball \"{tarball}\") {{}}).rosPackages").as_str(),
+                format!("(import (fetchTarball \"{tarball}\") {{ system = \"{system}\";{} }}).rosPackages", cross_system
+                        .map(|s| format!(" crossSystem = {s};")).unwrap_or("".to_string())).as_str(),
             ])
             .stdout(Stdio::piped())
             .stderr(Stdio::null());
@@ -160,9 +168,13 @@ async fn main() -> anyhow::Result<()> {
         .as_str()
         .expect("No nix-ros-overlay.revision in eval");
     let tarball = format!("{url}/archive/{rev}.tar.gz");
+    let system = eval["jobsetevalinputs"]["system"]["value"]
+        .as_str()
+        .unwrap();
+    let cross_system = eval["jobsetevalinputs"]["crossSystem"]["value"].as_str();
 
     eprintln!("Evaluating jobs in {tarball}...");
-    let jobs = nix_eval_jobs(&tarball).await?;
+    let jobs = nix_eval_jobs(&tarball, system, cross_system).await?;
 
     eprintln!("Calculating reverse dependencies...");
     let mut job_deps = HashMap::<&str, Vec<&str>>::new();

@@ -1,6 +1,7 @@
 use anyhow::{bail, Context};
+use futures::join;
 use futures::stream::{self, StreamExt};
-use indicatif::{ProgressBar, ProgressIterator, ProgressStyle};
+use indicatif::{MultiProgress, ProgressBar, ProgressIterator, ProgressStyle};
 use serde::Serialize;
 use serde_json::Value as JsonValue;
 use std::collections::{HashMap, HashSet};
@@ -47,6 +48,7 @@ async fn nix_eval_jobs(
     tarball: &str,
     system: &str,
     cross_system: Option<&str>,
+    pb: &ProgressBar,
 ) -> anyhow::Result<Vec<JsonValue>> {
     let cache_path = format!(
         "{CACHE_DIR}/{}_{system}_{cross_system:?}.jsonl",
@@ -80,9 +82,6 @@ async fn nix_eval_jobs(
                 .await
                 .expect("child process encountered an error")
         });
-
-        let pb = ProgressBar::new_spinner()
-            .with_style(ProgressStyle::default_spinner().tick_chars("🕛🕐🕑🕒🕓🕔🕕🕖🕗🕘🕙🕚"));
 
         let mut jobs = vec![];
         let mut to_cache = String::new();
@@ -142,24 +141,29 @@ async fn main() -> anyhow::Result<()> {
     eprintln!("Fetching hydra evaluation {eval_id}...");
     let eval = hydra.get(format!("eval/{eval_id}").as_str()).await?;
 
-    eprintln!("Fetching builds from the evaluation...");
-    let hydra_builds = stream::iter(
-        eval["builds"]
-            .as_array()
-            .expect("builds is not an array")
+    let mp = MultiProgress::new();
+
+    let builds = eval["builds"].as_array().expect("builds is not an array");
+    let hydra_builds_future = stream::iter(
+        builds
             .into_iter()
             .map(|build| {
                 let build_id = build.as_u64().expect("build_id not u64");
                 let hydra = hydra.clone();
                 async move { hydra.get(format!("build/{build_id}").as_str()).await }
             })
-            .progress(),
+            .progress_with(
+                mp.add(
+                    ProgressBar::new(builds.len() as u64)
+                        .with_style(ProgressStyle::with_template(
+                            "{prefix} {wide_bar} {pos}/{len}",
+                        )?)
+                        .with_prefix("Downloading builds:"),
+                ),
+            ),
     )
     .buffer_unordered(10)
-    .collect::<Vec<_>>()
-    .await
-    .into_iter()
-    .collect::<anyhow::Result<Vec<_>>>()?;
+    .collect::<Vec<_>>();
 
     let url = eval["jobsetevalinputs"]["nix-ros-overlay"]["uri"]
         .as_str()
@@ -173,8 +177,26 @@ async fn main() -> anyhow::Result<()> {
         .unwrap();
     let cross_system = eval["jobsetevalinputs"]["crossSystem"]["value"].as_str();
 
-    eprintln!("Evaluating jobs in {tarball}...");
-    let jobs = nix_eval_jobs(&tarball, system, cross_system).await?;
+    eprintln!("Tarball for evaluation: {tarball}");
+    let pb = mp.add(
+        ProgressBar::new_spinner()
+            .with_style(
+                ProgressStyle::with_template("{prefix} {spinner} {msg}")?
+                    .tick_chars("🕛🕐🕑🕒🕓🕔🕕🕖🕗🕘🕙🕚"),
+            )
+            .with_prefix("Evaluating:"),
+    );
+
+    let (hydra_builds, jobs) = join!(
+        hydra_builds_future,
+        nix_eval_jobs(&tarball, system, cross_system, &pb)
+    );
+    mp.clear()?;
+
+    let hydra_builds = hydra_builds
+        .into_iter()
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    let jobs = jobs?;
 
     eprintln!("Calculating reverse dependencies...");
     let mut job_deps = HashMap::<&str, Vec<&str>>::new();

@@ -25,22 +25,32 @@ impl Hydra {
 
     async fn get(&self, path: &str) -> anyhow::Result<JsonValue> {
         let cache_path = format!("{CACHE_DIR}/{path}");
-        let json_str = if let Ok(cached) = fs::read_to_string(&cache_path).await {
-            cached
-        } else {
-            let data = self
-                .client
-                .get(format!("{HYDRA_URL}/{path}"))
-                .header("Accept", "application/json")
-                .send()
-                .await?
-                .text()
-                .await?;
-            fs::create_dir_all(Path::new(&cache_path).parent().unwrap()).await?;
-            fs::write(cache_path, &data).await?;
-            data
-        };
-        Ok(serde_json::from_str(&json_str)?)
+        loop {
+            let mut was_cached = false;
+            let json_str = if let Ok(cached) = fs::read_to_string(&cache_path).await {
+                was_cached = true;
+                cached
+            } else {
+                let data = self
+                    .client
+                    .get(format!("{HYDRA_URL}/{path}"))
+                    .header("Accept", "application/json")
+                    .send()
+                    .await?
+                    .text()
+                    .await?;
+                fs::create_dir_all(Path::new(&cache_path).parent().unwrap()).await?;
+                fs::write(&cache_path, &data).await?;
+                data
+            };
+            let json: JsonValue = serde_json::from_str(&json_str)?;
+            if path.starts_with("build/") && was_cached && json["finished"].as_i64().unwrap() == 0 {
+                // Retry cached unfinished builds once
+                fs::remove_file(&cache_path).await?;
+                continue;
+            }
+            return Ok(json);
+        }
     }
 }
 

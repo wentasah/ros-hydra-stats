@@ -61,6 +61,7 @@ async fn nix_eval_jobs(
             .map(|line| serde_json::from_str(line))
             .collect::<Result<Vec<_>, _>>()?
     } else {
+        pb.set_message("Starting...");
         let mut nix_eval_jobs = Command::new("nix-eval-jobs");
         nix_eval_jobs
             .args([

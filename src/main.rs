@@ -2,6 +2,7 @@ use anyhow::{bail, Context};
 use futures::join;
 use futures::stream::{self, StreamExt};
 use indicatif::{MultiProgress, ProgressBar, ProgressIterator, ProgressStyle};
+use regex::Regex;
 use serde::Serialize;
 use serde_json::Value as JsonValue;
 use std::collections::{HashMap, HashSet};
@@ -137,9 +138,62 @@ fn dependent_job_counts(build: &JsonValue, jobs: &HashMap<&str, Vec<&str>>) -> V
     dep_counts
 }
 
+fn print_eval_failure_summary(jobs: &Vec<JsonValue>) {
+    let re_missing = Regex::new(r"error: attribute '[^']*' missing").unwrap();
+    let re_broken = Regex::new(
+        r"error: Package ‘[^’]*’( in /nix/store[^ ]*) is marked as (broken|insecure), refusing to evaluate",
+    )
+    .unwrap();
+    let re_unfree = Regex::new(
+        r"error: Package ‘[^’]*’( in /nix/store[^ ]*) has an unfree license \(‘[^’]*’\), refusing to evaluate",
+    )
+    .unwrap();
+    let re_missing_arg =
+        Regex::new(r#"callPackageWith: Function called without required argument "[^"]*""#)
+            .unwrap();
+    let mut eval_failure_reasons: HashMap<String, Vec<&str>> = HashMap::new();
+    for job in jobs {
+        if let Some(JsonValue::String(error)) = job.get("error") {
+            let attr = job["attr"].as_str().unwrap();
+            print!("{attr}: ");
+            let mut cnt = 0;
+            let mut record_reason = |reason: &str| {
+                cnt += 1;
+                eval_failure_reasons
+                    .entry(reason.to_string())
+                    .or_insert(Vec::new())
+                    .push(attr);
+            };
+            for m in re_missing.find_iter(error) {
+                record_reason(m.as_str());
+            }
+            for cap in re_broken.captures_iter(error) {
+                record_reason(&cap[0].replace(&cap[1], ""));
+            }
+            for cap in re_unfree.captures_iter(error) {
+                record_reason(&cap[0].replace(&cap[1], ""));
+            }
+            for m in re_missing_arg.find_iter(error) {
+                record_reason(m.as_str());
+            }
+            if cnt == 0 {
+                println!("{}", indent::indent_all_by(4, error));
+            }
+        }
+    }
+    for (reason, attrs) in &eval_failure_reasons {
+        println!("{reason}: {}", attrs.len());
+        for attr in attrs {
+            println!("    {attr}");
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let mut args = std::env::args();
+    let args = std::env::args();
+    let args = args;
+    let mut args = args;
     let prog = args.next().context("Prog name")?;
     let eval_id = args
         .next()
@@ -253,5 +307,6 @@ async fn main() -> anyhow::Result<()> {
         println!("{}", serde_json::to_string(fj)?);
     }
 
+    print_eval_failure_summary(&jobs);
     Ok(())
 }

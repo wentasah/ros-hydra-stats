@@ -1,4 +1,5 @@
-use anyhow::{bail, Context};
+use anyhow::bail;
+use clap::Parser;
 use futures::join;
 use futures::stream::{self, StreamExt};
 use indicatif::{MultiProgress, ProgressBar, ProgressIterator, ProgressStyle};
@@ -9,6 +10,8 @@ use std::collections::{HashMap, HashSet};
 use std::{path::Path, process::Stdio, sync::Arc};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::{fs, process::Command};
+
+mod cli;
 
 static HYDRA_URL: &str = "http://10.35.95.5:3000";
 static CACHE_DIR: &str = ".cache";
@@ -191,15 +194,9 @@ fn print_eval_failure_summary(jobs: &Vec<JsonValue>) {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let args = std::env::args();
-    let args = args;
-    let mut args = args;
-    let prog = args.next().context("Prog name")?;
-    let eval_id = args
-        .next()
-        .context(format!("Usage: {prog} <eval_id>"))?
-        .parse::<usize>()
-        .context("Invalid eval id")?;
+    let cli = cli::Cli::parse();
+
+    let eval_id = cli.eval_id;
 
     let hydra = Arc::new(Hydra::new());
 
@@ -307,6 +304,8 @@ async fn main() -> anyhow::Result<()> {
         println!("{}", serde_json::to_string(fj)?);
     }
 
-    print_eval_failure_summary(&jobs);
+    if cli.eval_failures {
+        print_eval_failure_summary(&jobs);
+    }
     Ok(())
 }

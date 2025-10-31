@@ -276,7 +276,11 @@ async fn main() -> anyhow::Result<()> {
 
     let failed_builds = hydra_builds
         .iter()
-        .filter(|build| build["buildstatus"].as_i64().unwrap() != 0)
+        .filter(|build| {
+            build["buildstatus"].as_i64().unwrap_or(
+                0, /* queued builds (value null) are not considered failed */
+            ) != 0
+        })
         .collect::<Vec<_>>();
 
     #[derive(Serialize, Debug)]

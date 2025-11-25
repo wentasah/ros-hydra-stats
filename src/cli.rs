@@ -9,4 +9,8 @@ pub struct Cli {
     /// Print statistics about evaluation failures
     #[arg(long)]
     pub(crate) eval_failures: bool,
+
+    /// List successfully built derivations
+    #[arg(long)]
+    pub(crate) list_successful: bool,
 }

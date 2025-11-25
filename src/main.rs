@@ -283,6 +283,15 @@ async fn main() -> anyhow::Result<()> {
         })
         .collect::<Vec<_>>();
 
+    if cli.list_successful {
+        hydra_builds
+            .iter()
+            .filter(|build| build["buildstatus"].as_i64().is_some_and(|b| b == 0))
+            //.for_each(|build| println!("{}", build["drvpath"].as_str().unwrap()));
+            .for_each(|build| println!("{}", build["job"].as_str().unwrap()));
+        return Ok(());
+    }
+
     #[derive(Serialize, Debug)]
     struct Job<'a> {
         job: &'a str,

@@ -200,10 +200,9 @@ async fn main() -> anyhow::Result<()> {
 
     let hydra = Arc::new(Hydra::new());
 
-    eprintln!("Fetching hydra evaluation {eval_id}...");
-    let eval = hydra.get(format!("eval/{eval_id}").as_str()).await?;
-
     let mp = MultiProgress::new();
+    mp.println(format!("Fetching hydra evaluation {eval_id}..."))?;
+    let eval = hydra.get(format!("eval/{eval_id}").as_str()).await?;
 
     let builds = eval["builds"].as_array().expect("builds is not an array");
     let hydra_builds_future = stream::iter(
@@ -239,7 +238,7 @@ async fn main() -> anyhow::Result<()> {
         .unwrap();
     let cross_system = eval["jobsetevalinputs"]["crossSystem"]["value"].as_str();
 
-    eprintln!("Tarball for evaluation: {tarball}");
+    mp.println(format!("Tarball for evaluation: {tarball}"))?;
     let pb = mp.add(
         ProgressBar::new_spinner()
             .with_style(
@@ -253,6 +252,7 @@ async fn main() -> anyhow::Result<()> {
         hydra_builds_future,
         nix_eval_jobs(&tarball, system, cross_system, &pb)
     );
+    mp.remove(&pb);
     mp.clear()?;
 
     let hydra_builds = hydra_builds
@@ -260,7 +260,7 @@ async fn main() -> anyhow::Result<()> {
         .collect::<anyhow::Result<Vec<_>>>()?;
     let jobs = jobs?;
 
-    eprintln!("Calculating reverse dependencies...");
+    mp.println("Calculating reverse dependencies...")?;
     let mut job_deps = HashMap::<&str, Vec<&str>>::new();
     for job in &jobs {
         if job.get("inputDrvs").is_none() {

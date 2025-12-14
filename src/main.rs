@@ -35,14 +35,17 @@ impl Hydra {
                 was_cached = true;
                 cached
             } else {
-                let data = self
+                let url = format!("{HYDRA_URL}/{path}");
+                let response = self
                     .client
-                    .get(format!("{HYDRA_URL}/{path}"))
+                    .get(&url)
                     .header("Accept", "application/json")
                     .send()
-                    .await?
-                    .text()
                     .await?;
+                if !response.status().is_success() {
+                    bail!("Failure getting {url}: {}", response.status());
+                }
+                let data = response.text().await?;
                 fs::create_dir_all(Path::new(&cache_path).parent().unwrap()).await?;
                 fs::write(&cache_path, &data).await?;
                 data

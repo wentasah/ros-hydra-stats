@@ -48,7 +48,10 @@ impl Hydra {
                 data
             };
             let json: JsonValue = serde_json::from_str(&json_str)?;
-            if path.starts_with("build/") && was_cached && json["finished"].as_i64().unwrap() == 0 {
+            if path.starts_with("build/")
+                && was_cached
+                && json["finished"].as_i64().unwrap_or(0) == 0
+            {
                 // Retry cached unfinished builds once
                 fs::remove_file(&cache_path).await?;
                 continue;

@@ -192,15 +192,16 @@ fn print_eval_failure_summary(jobs: &Vec<JsonValue>) {
     }
 }
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    let cli = cli::Cli::parse();
+struct HydraEval {
+    hydra_builds: Vec<JsonValue>,
+    eval_jobs: Vec<JsonValue>,
+}
 
-    let eval_id = cli.eval_id;
-
-    let hydra = Arc::new(Hydra::new());
-
-    let mp = MultiProgress::new();
+async fn fetch_hydra_eval(
+    hydra: Arc<Hydra>,
+    eval_id: usize,
+    mp: &MultiProgress,
+) -> anyhow::Result<HydraEval> {
     mp.println(format!("Fetching hydra evaluation {eval_id}..."))?;
     let eval = hydra.get(format!("eval/{eval_id}").as_str()).await?;
 
@@ -253,16 +254,32 @@ async fn main() -> anyhow::Result<()> {
         nix_eval_jobs(&tarball, system, cross_system, &pb)
     );
     mp.remove(&pb);
-    mp.clear()?;
 
     let hydra_builds = hydra_builds
         .into_iter()
         .collect::<anyhow::Result<Vec<_>>>()?;
-    let jobs = jobs?;
+
+    Ok(HydraEval {
+        hydra_builds,
+        eval_jobs: jobs?,
+    })
+}
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let cli = cli::Cli::parse();
+
+    let eval_id = cli.eval_id;
+
+    let hydra = Arc::new(Hydra::new());
+
+    let mp = MultiProgress::new();
+    let hydra_eval = fetch_hydra_eval(hydra.clone(), eval_id, &mp).await?;
+    mp.clear()?;
 
     mp.println("Calculating reverse dependencies...")?;
     let mut job_deps = HashMap::<&str, Vec<&str>>::new();
-    for job in &jobs {
+    for job in &hydra_eval.eval_jobs {
         if job.get("inputDrvs").is_none() {
             continue; // eval error
         }
@@ -274,7 +291,8 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
-    let failed_builds = hydra_builds
+    let failed_builds = hydra_eval
+        .hydra_builds
         .iter()
         .filter(|build| {
             build["buildstatus"].as_i64().unwrap_or(
@@ -284,7 +302,8 @@ async fn main() -> anyhow::Result<()> {
         .collect::<Vec<_>>();
 
     if cli.list_successful {
-        hydra_builds
+        hydra_eval
+            .hydra_builds
             .iter()
             .filter(|build| build["buildstatus"].as_i64().is_some_and(|b| b == 0))
             //.for_each(|build| println!("{}", build["drvpath"].as_str().unwrap()));
@@ -318,7 +337,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     if cli.eval_failures {
-        print_eval_failure_summary(&jobs);
+        print_eval_failure_summary(&hydra_eval.eval_jobs);
     }
     Ok(())
 }

@@ -223,7 +223,7 @@ async fn fetch_hydra_eval(
                         .with_style(ProgressStyle::with_template(
                             "{prefix} {wide_bar} {pos}/{len}",
                         )?)
-                        .with_prefix("Downloading builds:"),
+                        .with_prefix(format!("Downloading builds of eval {eval_id}:")),
                 ),
             ),
     )
@@ -249,7 +249,7 @@ async fn fetch_hydra_eval(
                 ProgressStyle::with_template("{prefix} {spinner} {msg}")?
                     .tick_chars("🕛🕐🕑🕒🕓🕔🕕🕖🕗🕘🕙🕚"),
             )
-            .with_prefix("Evaluating:"),
+            .with_prefix(format!("Evaluating {eval_id}:")),
     );
 
     let (hydra_builds, jobs) = join!(

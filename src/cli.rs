@@ -1,16 +1,32 @@
-use clap::Parser;
+use clap::{Args, Parser, Subcommand};
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
 pub struct Cli {
+    #[command(subcommand)]
+    pub command: Commands,
+}
+
+#[derive(Subcommand)]
+pub enum Commands {
+    /// Print hydra eval stats
+    Eval(EvalArgs),
+    PR {
+        /// Produce comparison PR source and target
+        pr: usize,
+    },
+}
+
+#[derive(Args)]
+pub struct EvalArgs {
     /// Evaluation ID to analyze
-    pub(crate) eval_id: usize,
+    pub eval_id: usize,
 
     /// Print statistics about evaluation failures
     #[arg(long)]
-    pub(crate) eval_failures: bool,
+    pub eval_failures: bool,
 
     /// List successfully built derivations
     #[arg(long)]
-    pub(crate) list_successful: bool,
+    pub list_successful: bool,
 }

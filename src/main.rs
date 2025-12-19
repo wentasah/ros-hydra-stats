@@ -77,8 +77,7 @@ async fn nix_eval_jobs(
     let jobs = if let Ok(cached) = fs::read_to_string(&cache_path).await {
         cached
             .lines()
-            .into_iter()
-            .map(|line| serde_json::from_str(line))
+            .map(serde_json::from_str)
             .collect::<Result<Vec<_>, _>>()?
     } else {
         pb.set_message("Starting...");
@@ -170,7 +169,7 @@ fn print_eval_failure_summary(jobs: &Vec<JsonValue>) {
                 cnt += 1;
                 eval_failure_reasons
                     .entry(reason.to_string())
-                    .or_insert(Vec::new())
+                    .or_default()
                     .push(attr);
             };
             for m in re_missing.find_iter(error) {
@@ -214,7 +213,7 @@ async fn fetch_hydra_eval(
     let builds = eval["builds"].as_array().expect("builds is not an array");
     let hydra_builds_future = stream::iter(
         builds
-            .into_iter()
+            .iter()
             .map(|build| {
                 let build_id = build.as_u64().expect("build_id not u64");
                 let hydra = hydra.clone();
@@ -292,7 +291,7 @@ async fn main() -> anyhow::Result<()> {
         for input_drv in job["inputDrvs"].as_object().unwrap().keys() {
             job_deps
                 .entry(input_drv.as_str())
-                .or_insert(Vec::<&str>::new())
+                .or_default()
                 .push(job["drvPath"].as_str().unwrap());
         }
     }

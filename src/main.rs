@@ -1,15 +1,17 @@
 use anyhow::bail;
 use clap::Parser;
+use futures::future::join_all;
 use futures::join;
 use futures::stream::{self, StreamExt};
 use indicatif::{MultiProgress, ProgressBar, ProgressIterator, ProgressStyle};
 use regex::Regex;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use std::collections::{HashMap, HashSet};
 use std::{path::Path, process::Stdio, sync::Arc};
+use tokio::fs;
 use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::{fs, process::Command};
+use tokio::process::Command;
 
 mod cli;
 
@@ -202,6 +204,101 @@ struct HydraEval {
     eval_jobs: Vec<JsonValue>,
 }
 
+#[derive(Deserialize, Clone)]
+struct HydraBuild {
+    finished: i8,
+    buildstatus: i8,
+    id: u64,
+}
+
+impl HydraBuild {
+    fn success(&self) -> bool {
+        self.finished == 1 && self.buildstatus == 0
+    }
+}
+
+enum HydraJob<'a> {
+    EvalError(&'a str),
+    Build(HydraBuild),
+    MissingBuild,
+}
+
+struct HydraEvalSummary<'a>(HashMap<&'a str, HydraJob<'a>>);
+
+impl<'a> HydraEvalSummary<'a> {
+    fn compare(&self, other: &HydraEvalSummary) {
+        let mut msgs: HashMap<&'static str, Vec<String>> = HashMap::new();
+        for (&attr, job) in &self.0 {
+            use HydraJob::*;
+            #[rustfmt::skip]
+            let msg = match (job, other.0.get(attr)) {
+                (_, None) => "Removed",
+                (Build(_), Some(EvalError(_))) => "Introduced eval errors",
+                (EvalError(_), Some(Build(b))) if !b.success() => "Fixed eval errors but build fails",
+                (EvalError(_), Some(Build(_))) => "Fixed eval errors",
+                (EvalError(_), Some(EvalError(_))) => "Kept eval errors",
+                (Build(b1), Some(Build(b2))) if b1.success() && !b2.success() => "Introduced new build failures",
+                (Build(b1), Some(Build(b2))) if !b1.success() && b2.success() => "Fixed build failures",
+                (Build(b1), Some(Build(b2))) if !b1.success() && !b2.success() => "Kept build failures",
+                (Build(_), Some(Build(_))) => "Kept build successes",
+                (MissingBuild, Some(MissingBuild)) => "Kept missing builds",
+                (MissingBuild, Some(EvalError(_))) => "Turns missing build into eval error",
+                (MissingBuild, Some(Build(_))) => "Turns missing build into build",
+                (_, Some(MissingBuild)) => "Introduced missing builds",
+            };
+            msgs.entry(msg).or_default().push(attr.to_string());
+        }
+        for (&msg, attrs) in &mut msgs {
+            attrs.sort();
+            println!("{msg} ({}):", attrs.len());
+            println!("    {}", attrs.join(", "));
+        }
+    }
+}
+
+impl HydraEval {
+    pub fn new(hydra_builds: Vec<JsonValue>, eval_jobs: Vec<JsonValue>) -> Self {
+        Self {
+            hydra_builds,
+            eval_jobs,
+        }
+    }
+
+    fn summary(&'_ self) -> HydraEvalSummary<'_> {
+        let builds: HashMap<&str, HydraBuild> = self
+            .hydra_builds
+            .iter()
+            .map(|build| {
+                (
+                    build["job"].as_str().unwrap(),
+                    serde_json::from_value(build.clone()).unwrap(),
+                )
+            })
+            .collect();
+        HydraEvalSummary(
+            self.eval_jobs
+                .iter()
+                .map(|job| {
+                    let attr = job["attr"].as_str().unwrap();
+                    job["error"]
+                        .as_str()
+                        .map(|err| (attr, HydraJob::EvalError(err)))
+                        .or_else(|| {
+                            builds
+                                .get(format!("rosPackages.{attr}").as_str())
+                                .map(|build| (attr, HydraJob::Build(build.clone())))
+                        })
+                        .unwrap_or((attr, HydraJob::MissingBuild))
+                })
+                .collect(),
+        )
+    }
+
+    fn compare(&self, other: &Self) {
+        self.summary().compare(&other.summary())
+    }
+}
+
 async fn fetch_hydra_eval(
     hydra: Arc<Hydra>,
     eval_id: usize,
@@ -264,25 +361,10 @@ async fn fetch_hydra_eval(
         .into_iter()
         .collect::<anyhow::Result<Vec<_>>>()?;
 
-    Ok(HydraEval {
-        hydra_builds,
-        eval_jobs: jobs?,
-    })
+    Ok(HydraEval::new(hydra_builds, jobs?))
 }
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    let cli = cli::Cli::parse();
-
-    let eval_id = cli.eval_id;
-
-    let hydra = Arc::new(Hydra::new());
-
-    let mp = MultiProgress::new();
-    let hydra_eval = fetch_hydra_eval(hydra.clone(), eval_id, &mp).await?;
-    mp.clear()?;
-
-    mp.println("Calculating reverse dependencies...")?;
+fn process_and_print_eval_stats(hydra_eval: HydraEval, cli: cli::EvalArgs) -> anyhow::Result<()> {
     let mut job_deps = HashMap::<&str, Vec<&str>>::new();
     for job in &hydra_eval.eval_jobs {
         if job.get("inputDrvs").is_none() {
@@ -344,5 +426,77 @@ async fn main() -> anyhow::Result<()> {
     if cli.eval_failures {
         print_eval_failure_summary(&hydra_eval.eval_jobs);
     }
+    Ok(())
+}
+
+async fn handle_pr(hydra: Arc<Hydra>, pr_num: usize, mp: &MultiProgress) -> anyhow::Result<()> {
+    let jobsets = join_all(vec![
+        hydra.get("jobset/nix-ros-experiments/wentasah-rosdistro-sync/evals"),
+        hydra.get("jobset/nix-ros-experiments/wentasah-test/evals"),
+        hydra.get("jobset/nix-ros-experiments/lopsided98-develop/evals"),
+        // TODO: Reread without cache if eval is not found below
+    ])
+    .await
+    .into_iter()
+    .collect::<Result<Vec<_>, _>>()?;
+
+    let gh = Command::new("gh")
+        .arg("api")
+        .arg(format!("repos/lopsided98/nix-ros-overlay/pulls/{pr_num}"))
+        .output()
+        .await?;
+    let pr: JsonValue = serde_json::from_str(str::from_utf8(&gh.stdout)?)?;
+    // println!("{}", &pr);
+    let base_sha = pr["base"]["sha"].as_str().unwrap();
+    let head_sha = pr["head"]["sha"].as_str().unwrap();
+
+    let find_eval_id_of_commit = |sha: &str| {
+        jobsets.iter().find_map(|evals| {
+            evals["evals"].as_array().unwrap().iter().find_map(|eval| {
+                (eval // wrap line
+                 ["jobsetevalinputs"].as_object().unwrap() // wrap line
+                 ["nix-ros-overlay"].as_object().unwrap() // wrap line
+                 ["revision"].as_str().unwrap() // wrap line
+                 == sha)
+                    .then_some(eval["id"].as_u64().unwrap())
+            })
+        })
+    };
+    let base_eval = find_eval_id_of_commit(base_sha);
+    let head_eval = find_eval_id_of_commit(head_sha);
+
+    dbg!(base_eval);
+    dbg!(head_eval);
+
+    let evals = join_all(vec![
+        fetch_hydra_eval(hydra.clone(), base_eval.unwrap() as usize, mp),
+        fetch_hydra_eval(hydra.clone(), head_eval.unwrap() as usize, mp),
+    ])
+    .await
+    .into_iter()
+    .collect::<Result<Vec<_>, _>>()?;
+    evals[0].compare(&evals[1]);
+    Ok(())
+}
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let cli = cli::Cli::parse();
+
+    let hydra = Arc::new(Hydra::new());
+
+    let mp = MultiProgress::new();
+    match cli.command {
+        cli::Commands::Eval(args) => {
+            let hydra_eval = fetch_hydra_eval(hydra.clone(), args.eval_id, &mp).await?;
+            mp.println("Calculating reverse dependencies...")?;
+            process_and_print_eval_stats(hydra_eval, args)?;
+        }
+        cli::Commands::PR { pr } => {
+            handle_pr(hydra.clone(), pr, &mp).await?;
+        }
+    };
+    mp.clear()?;
+
     Ok(())
 }

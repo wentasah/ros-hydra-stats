@@ -254,16 +254,16 @@ enum CiChange {
     NewUnbuiltAttr,
 }
 
-enum HydraJob<'a> {
+enum HydraAttrStatus<'a> {
     EvalError(&'a str),
     Build(HydraBuild),
-    UnbuiltAttr,
+    Unbuilt,
 }
 
-impl<'a> HydraJob<'a> {
-    fn compare(&self, other: &HydraJob) -> CiChange {
+impl<'a> HydraAttrStatus<'a> {
+    fn compare(&self, other: &HydraAttrStatus) -> CiChange {
         use CiChange::*;
-        use HydraJob::*;
+        use HydraAttrStatus::*;
         match (self, other) {
             (Build(_), EvalError(_)) => NewEvalError,
             (EvalError(_), Build(b)) if !b.success() => FixedEvalErrorBuildFails,
@@ -273,15 +273,15 @@ impl<'a> HydraJob<'a> {
             (Build(b1), Build(b2)) if !b1.success() && b2.success() => FixedBuildFailure,
             (Build(b1), Build(b2)) if !b1.success() && !b2.success() => BuildFailureNoChange,
             (Build(_), Build(_)) => BuildSuccessNoChange,
-            (UnbuiltAttr, UnbuiltAttr) => UnbuiltNoChange,
-            (UnbuiltAttr, EvalError(_)) => UnbuiltToEvalError,
-            (UnbuiltAttr, Build(_)) => UnbuiltToBuild,
-            (_, UnbuiltAttr) => NewUnbuiltAttr,
+            (Unbuilt, Unbuilt) => UnbuiltNoChange,
+            (Unbuilt, EvalError(_)) => UnbuiltToEvalError,
+            (Unbuilt, Build(_)) => UnbuiltToBuild,
+            (_, Unbuilt) => NewUnbuiltAttr,
         }
     }
 }
 
-struct HydraEvalSummary<'a>(HashMap<&'a str, HydraJob<'a>>);
+struct HydraEvalSummary<'a>(HashMap<&'a str, HydraAttrStatus<'a>>);
 
 impl<'a> HydraEvalSummary<'a> {
     fn compare(&self, other: &HydraEvalSummary) {
@@ -334,13 +334,13 @@ impl HydraEval {
                     let attr = job["attr"].as_str().unwrap();
                     job["error"]
                         .as_str()
-                        .map(|err| (attr, HydraJob::EvalError(err)))
+                        .map(|err| (attr, HydraAttrStatus::EvalError(err)))
                         .or_else(|| {
                             builds
                                 .get(format!("rosPackages.{attr}").as_str())
-                                .map(|build| (attr, HydraJob::Build(build.clone())))
+                                .map(|build| (attr, HydraAttrStatus::Build(build.clone())))
                         })
-                        .unwrap_or((attr, HydraJob::UnbuiltAttr))
+                        .unwrap_or((attr, HydraAttrStatus::Unbuilt))
                 })
                 .collect(),
         )

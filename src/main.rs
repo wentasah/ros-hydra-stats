@@ -249,7 +249,7 @@ enum CiChange {
     #[strum(to_string = "✅ Removed")]
     Removed,
     #[strum(to_string = "✅ Fixed eval errors")]
-    FexedEvalError,
+    FixedEvalError,
     #[strum(to_string = "✅ Fixed build failures")]
     FixedBuildFailure,
     #[strum(to_string = "✅ Still succeeding builds", props(list_attrs = false))]
@@ -301,7 +301,7 @@ impl<'a> HydraAttrStatus<'a> {
         match (self, other) {
             (Build(_), EvalError(_)) => NewEvalError,
             (EvalError(_), Build(b)) if !b.success() => FixedEvalErrorBuildFails,
-            (EvalError(_), Build(_)) => FexedEvalError,
+            (EvalError(_), Build(_)) => FixedEvalError,
             (EvalError(_), EvalError(_)) => EvalErrrorNoChange,
             (Build(b1), Build(b2)) if b1.success() && !b2.success() => NewBuildFailure,
             (Build(b1), Build(b2)) if !b1.success() && b2.success() => FixedBuildFailure,

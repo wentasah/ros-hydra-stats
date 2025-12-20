@@ -246,40 +246,40 @@ impl HydraBuild {
 enum CiChange {
     #[strum(to_string = "✅ Added successfully")]
     AddedOk,
-    #[strum(to_string = "❌ Added with eval errors")]
-    AddedEvalError,
-    #[strum(to_string = "❌ Added with build failure")]
-    AddedBuildFailure,
-    #[strum(to_string = "⚠️ Added unbuilt attributes")]
-    AddedUnbuilt,
     #[strum(to_string = "✅ Removed")]
     Removed,
-    #[strum(to_string = "❌ Introduced eval errors")]
-    NewEvalError,
-    #[strum(to_string = "❌ Fixed eval errors but build fails")]
-    FixedEvalErrorBuildFails,
     #[strum(to_string = "✅ Fixed eval errors")]
     FexedEvalError,
-    #[strum(to_string = "⚠️ Still present eval errors", props(list_attrs = false))]
-    EvalErrrorNoChange,
-    #[strum(to_string = "❌ Introduced build failures")]
-    NewBuildFailure,
     #[strum(to_string = "✅ Fixed build failures")]
     FixedBuildFailure,
-    #[strum(to_string = "⚠️ Still failing builds", props(list_attrs = false))]
-    BuildFailureNoChange,
     #[strum(to_string = "✅ Still succeeding builds", props(list_attrs = false))]
     BuildSuccessNoChange,
     #[strum(to_string = "✅ Still unbuilt attributes", props(list_attrs = false))]
     UnbuiltNoChange,
-    #[strum(to_string = "❌ Turns unbuilt attributes into eval error")]
-    UnbuiltToEvalError,
-    #[strum(to_string = "❌ Starts building previously unbuilt attributes with failure")]
-    UnbuiltToBuildFailure,
     #[strum(to_string = "✅ Starts building previously unbuilt attributes successfully")]
     UnbuiltToBuildOk,
+    #[strum(to_string = "⚠️ Added unbuilt attributes")]
+    AddedUnbuilt,
+    #[strum(to_string = "⚠️ Still present eval errors", props(list_attrs = false))]
+    EvalErrrorNoChange,
+    #[strum(to_string = "⚠️ Still failing builds", props(list_attrs = false))]
+    BuildFailureNoChange,
     #[strum(to_string = "⚠️ Introduced unbuilt attributes")]
     NewUnbuiltAttr,
+    #[strum(to_string = "❌ Added with eval errors")]
+    AddedEvalError,
+    #[strum(to_string = "❌ Added with build failures")]
+    AddedBuildFailure,
+    #[strum(to_string = "❌ Introduced eval errors")]
+    NewEvalError,
+    #[strum(to_string = "❌ Fixed eval errors but build fails")]
+    FixedEvalErrorBuildFails,
+    #[strum(to_string = "❌ Introduced build failures")]
+    NewBuildFailure,
+    #[strum(to_string = "❌ Turns unbuilt attributes into eval errors")]
+    UnbuiltToEvalError,
+    #[strum(to_string = "❌ Starts building previously unbuilt attributes with build failures")]
+    UnbuiltToBuildFailure,
 }
 
 #[derive(Copy, Clone)]

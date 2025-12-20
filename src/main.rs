@@ -166,36 +166,38 @@ impl EvalErrorAnalyzer {
             missing_arg: Regex::new(r#"callPackageWith: Function called without required argument "[^"]*""#).unwrap(),
         }
     }
+    pub fn analyze(&self, error: &str) -> Option<String> {
+        if let Some(mtch) = self.missing.find_iter(error).next() {
+            return Some(mtch.as_str().to_string());
+        }
+        if let Some(cap) = self.broken.captures_iter(error).next() {
+            return Some(cap[0].replace(&cap[1], ""));
+        }
+        if let Some(cap) = self.unfree.captures_iter(error).next() {
+            return Some(cap[0].replace(&cap[1], ""));
+        }
+        if let Some(mtch) = self.missing_arg.find_iter(error).next() {
+            return Some(mtch.as_str().to_string());
+        }
+        None
+    }
 }
 
+fn get_eval_error_summary(eval_error: &str) {}
+
 fn print_eval_failure_summary(jobs: &Vec<JsonValue>) {
-    let re: LazyLock<EvalErrorAnalyzer> = LazyLock::new(EvalErrorAnalyzer::new);
+    let error_analyzer: LazyLock<EvalErrorAnalyzer> = LazyLock::new(EvalErrorAnalyzer::new);
     let mut eval_failure_reasons: HashMap<String, Vec<&str>> = HashMap::new();
     for job in jobs {
         if let Some(JsonValue::String(error)) = job.get("error") {
             let attr = job["attr"].as_str().unwrap();
-            print!("{attr}: ");
-            let mut cnt = 0;
-            let mut record_reason = |reason: &str| {
-                cnt += 1;
+            if let Some(reason) = error_analyzer.analyze(error) {
                 eval_failure_reasons
                     .entry(reason.to_string())
                     .or_default()
                     .push(attr);
-            };
-            for m in re.missing.find_iter(error) {
-                record_reason(m.as_str());
-            }
-            for cap in re.broken.captures_iter(error) {
-                record_reason(&cap[0].replace(&cap[1], ""));
-            }
-            for cap in re.unfree.captures_iter(error) {
-                record_reason(&cap[0].replace(&cap[1], ""));
-            }
-            for m in re.missing_arg.find_iter(error) {
-                record_reason(m.as_str());
-            }
-            if cnt == 0 {
+            } else {
+                println!("{attr}: ");
                 println!("{}", indent::indent_all_by(4, error));
             }
         }

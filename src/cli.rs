@@ -20,7 +20,7 @@ pub enum Commands {
 #[derive(Args)]
 pub struct EvalArgs {
     /// Evaluation ID to analyze
-    pub eval_id: usize,
+    pub eval_id: u64,
 
     /// Print statistics about evaluation failures
     #[arg(long)]

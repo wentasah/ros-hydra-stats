@@ -7,6 +7,7 @@ use indicatif::{MultiProgress, ProgressBar, ProgressIterator, ProgressStyle};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
+use std::cell::OnceCell;
 use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 use std::{path::Path, process::Stdio, sync::Arc};
@@ -183,15 +184,14 @@ impl EvalErrorAnalyzer {
     }
 }
 
-fn get_eval_error_summary(eval_error: &str) {}
+static EVAL_ERROR_ANALYZER: LazyLock<EvalErrorAnalyzer> = LazyLock::new(EvalErrorAnalyzer::new);
 
 fn print_eval_failure_summary(jobs: &Vec<JsonValue>) {
-    let error_analyzer: LazyLock<EvalErrorAnalyzer> = LazyLock::new(EvalErrorAnalyzer::new);
     let mut eval_failure_reasons: HashMap<String, Vec<&str>> = HashMap::new();
     for job in jobs {
         if let Some(JsonValue::String(error)) = job.get("error") {
             let attr = job["attr"].as_str().unwrap();
-            if let Some(reason) = error_analyzer.analyze(error) {
+            if let Some(reason) = EVAL_ERROR_ANALYZER.analyze(error) {
                 eval_failure_reasons
                     .entry(reason.to_string())
                     .or_default()
@@ -298,6 +298,20 @@ impl<'a> HydraAttrStatus<'a> {
 
 struct HydraEvalSummary<'a>(HashMap<&'a str, HydraAttrStatus<'a>>);
 
+fn _escape_markdown(input: &str) -> String {
+    let special_chars = r"\`*_{}[]()#+-.!";
+    input
+        .chars()
+        .map(|c| {
+            if special_chars.contains(c) {
+                format!(r"\{}", c)
+            } else {
+                c.to_string()
+            }
+        })
+        .collect()
+}
+
 impl<'a> HydraEvalSummary<'a> {
     fn compare(&self, other: &HydraEvalSummary) {
         let mut summary: HashMap<CiChange, Vec<AttrInfo>> = HashMap::new();
@@ -317,15 +331,30 @@ impl<'a> HydraEvalSummary<'a> {
                 attrs.sort_by(|a, b| a.attr.cmp(&b.attr));
                 println!("\n{change}: {}", attrs.len());
                 if change.get_bool("list_attrs").unwrap_or(true) {
-                    for ai in attrs {
-                        match ai.status {
+                    let header = OnceCell::new();
+                    for attr_info in attrs {
+                        match attr_info.status {
                             Some(HydraAttrStatus::Build(b)) => {
-                                println!("  - [{}]({})", ai.attr, b.url())
+                                println!("  - [{}]({})", attr_info.attr, b.url())
                             }
-                            _ => println!("  - {}", ai.attr),
+                            Some(HydraAttrStatus::EvalError(err)) => {
+                                header.get_or_init(|| {
+                                    println!("  | Attribute | Reason |");
+                                    println!("  |-----------|--------|");
+                                });
+                                println!(
+                                    "  | {} | {} |",
+                                    attr_info.attr,
+                                    EVAL_ERROR_ANALYZER
+                                        .analyze(err)
+                                        .map(|reason| format!("```{}```", reason))
+                                        .unwrap_or("Unrecognized eval error".into())
+                                )
+                            }
+                            _ => println!("  - {}", attr_info.attr),
                         }
                     }
-                }
+                };
             });
         }
     }

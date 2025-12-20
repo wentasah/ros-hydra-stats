@@ -7,7 +7,6 @@ use indicatif::{MultiProgress, ProgressBar, ProgressIterator, ProgressStyle};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
-use std::arch::x86_64::_mm256_i32scatter_ps;
 use std::collections::{HashMap, HashSet};
 use std::{path::Path, process::Stdio, sync::Arc};
 use strum::{EnumIter, EnumProperty, IntoEnumIterator};
@@ -206,7 +205,7 @@ struct HydraEval {
     eval_jobs: Vec<JsonValue>,
 }
 
-#[derive(Deserialize, Clone)]
+#[derive(Deserialize, Copy, Clone)]
 struct HydraBuild {
     finished: i8,
     buildstatus: i8,
@@ -254,10 +253,16 @@ enum CiChange {
     NewUnbuiltAttr,
 }
 
+#[derive(Copy, Clone)]
 enum HydraAttrStatus<'a> {
     EvalError(&'a str),
     Build(HydraBuild),
     Unbuilt,
+}
+
+struct AttrInfo<'a> {
+    attr: String,
+    status: Option<HydraAttrStatus<'a>>,
 }
 
 impl<'a> HydraAttrStatus<'a> {
@@ -285,22 +290,30 @@ struct HydraEvalSummary<'a>(HashMap<&'a str, HydraAttrStatus<'a>>);
 
 impl<'a> HydraEvalSummary<'a> {
     fn compare(&self, other: &HydraEvalSummary) {
-        let mut summary: HashMap<CiChange, Vec<String>> = HashMap::new();
-        for (&attr, job) in &self.0 {
-            #[rustfmt::skip]
-            let change = match (job, other.0.get(attr)) {
+        let mut summary: HashMap<CiChange, Vec<AttrInfo>> = HashMap::new();
+        for (&attr, status) in &self.0 {
+            let other_status = other.0.get(attr);
+            let change = match (status, other_status) {
                 (_, None) => CiChange::Removed,
-                (_, Some(other)) => job.compare(other),
+                (_, Some(other)) => status.compare(other),
             };
-            summary.entry(change).or_default().push(attr.to_string());
+            summary.entry(change).or_default().push(AttrInfo {
+                attr: attr.to_string(),
+                status: other_status.copied(),
+            });
         }
         for change in CiChange::iter() {
             summary.entry(change).and_modify(|attrs| {
-                attrs.sort();
-                println!("{change} ({}):", attrs.len());
+                attrs.sort_by(|a, b| a.attr.cmp(&b.attr));
+                println!("\n{change}: {}", attrs.len());
                 if change.get_bool("list_attrs").unwrap_or(true) {
-                    for attr in attrs {
-                        println!("  - {attr}");
+                    for ai in attrs {
+                        match ai.status {
+                            Some(HydraAttrStatus::Build(b)) => {
+                                println!("  - [{}]({})", ai.attr, b.url())
+                            }
+                            _ => println!("  - {}", ai.attr),
+                        }
                     }
                 }
             });

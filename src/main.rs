@@ -7,8 +7,10 @@ use indicatif::{MultiProgress, ProgressBar, ProgressIterator, ProgressStyle};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
+use std::arch::x86_64::_mm256_i32scatter_ps;
 use std::collections::{HashMap, HashSet};
 use std::{path::Path, process::Stdio, sync::Arc};
+use strum::{EnumIter, EnumProperty, IntoEnumIterator};
 use tokio::fs;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
@@ -215,6 +217,41 @@ impl HydraBuild {
     fn success(&self) -> bool {
         self.finished == 1 && self.buildstatus == 0
     }
+    fn url(&self) -> String {
+        format!("https://hydra.iid.ciirc.cvut.cz/build/{}", self.id)
+    }
+}
+
+#[derive(
+    strum_macros::Display, strum_macros::EnumProperty, Eq, Hash, PartialEq, EnumIter, Clone, Copy,
+)]
+enum CiChange {
+    #[strum(to_string = "Removed")]
+    Removed,
+    #[strum(to_string = "Introduced eval errors")]
+    NewEvalError,
+    #[strum(to_string = "Fixed eval errors but build fails")]
+    FixedEvalErrorBuildFails,
+    #[strum(to_string = "Fixed eval errors")]
+    FexedEvalError,
+    #[strum(to_string = "Kept eval errors", props(list_attrs = false))]
+    EvalErrrorNoChange,
+    #[strum(to_string = "Introduced new build failures")]
+    NewBuildFailure,
+    #[strum(to_string = "Fixed build failures")]
+    FixedBuildFailure,
+    #[strum(to_string = "Kept build failures", props(list_attrs = false))]
+    BuildFailureNoChange,
+    #[strum(to_string = "Kept build successes", props(list_attrs = false))]
+    BuildSuccessNoChange,
+    #[strum(to_string = "Kept missing builds", props(list_attrs = false))]
+    MissingBuildNoChange,
+    #[strum(to_string = "Turns missing build into eval error")]
+    MissingBuildToEvalError,
+    #[strum(to_string = "Turns missing build into build")]
+    MissingBuildToBuild,
+    #[strum(to_string = "Introduced missing builds")]
+    NewMissingBuild,
 }
 
 enum HydraJob<'a> {
@@ -223,35 +260,50 @@ enum HydraJob<'a> {
     MissingBuild,
 }
 
+impl<'a> HydraJob<'a> {
+    fn compare(&self, other: &HydraJob) -> CiChange {
+        use CiChange::*;
+        use HydraJob::*;
+        match (self, other) {
+            (Build(_), EvalError(_)) => NewEvalError,
+            (EvalError(_), Build(b)) if !b.success() => FixedEvalErrorBuildFails,
+            (EvalError(_), Build(_)) => FexedEvalError,
+            (EvalError(_), EvalError(_)) => EvalErrrorNoChange,
+            (Build(b1), Build(b2)) if b1.success() && !b2.success() => NewBuildFailure,
+            (Build(b1), Build(b2)) if !b1.success() && b2.success() => FixedBuildFailure,
+            (Build(b1), Build(b2)) if !b1.success() && !b2.success() => BuildFailureNoChange,
+            (Build(_), Build(_)) => BuildSuccessNoChange,
+            (MissingBuild, MissingBuild) => MissingBuildNoChange,
+            (MissingBuild, EvalError(_)) => MissingBuildToEvalError,
+            (MissingBuild, Build(_)) => MissingBuildToBuild,
+            (_, MissingBuild) => NewMissingBuild,
+        }
+    }
+}
+
 struct HydraEvalSummary<'a>(HashMap<&'a str, HydraJob<'a>>);
 
 impl<'a> HydraEvalSummary<'a> {
     fn compare(&self, other: &HydraEvalSummary) {
-        let mut msgs: HashMap<&'static str, Vec<String>> = HashMap::new();
+        let mut summary: HashMap<CiChange, Vec<String>> = HashMap::new();
         for (&attr, job) in &self.0 {
-            use HydraJob::*;
             #[rustfmt::skip]
-            let msg = match (job, other.0.get(attr)) {
-                (_, None) => "Removed",
-                (Build(_), Some(EvalError(_))) => "Introduced eval errors",
-                (EvalError(_), Some(Build(b))) if !b.success() => "Fixed eval errors but build fails",
-                (EvalError(_), Some(Build(_))) => "Fixed eval errors",
-                (EvalError(_), Some(EvalError(_))) => "Kept eval errors",
-                (Build(b1), Some(Build(b2))) if b1.success() && !b2.success() => "Introduced new build failures",
-                (Build(b1), Some(Build(b2))) if !b1.success() && b2.success() => "Fixed build failures",
-                (Build(b1), Some(Build(b2))) if !b1.success() && !b2.success() => "Kept build failures",
-                (Build(_), Some(Build(_))) => "Kept build successes",
-                (MissingBuild, Some(MissingBuild)) => "Kept missing builds",
-                (MissingBuild, Some(EvalError(_))) => "Turns missing build into eval error",
-                (MissingBuild, Some(Build(_))) => "Turns missing build into build",
-                (_, Some(MissingBuild)) => "Introduced missing builds",
+            let change = match (job, other.0.get(attr)) {
+                (_, None) => CiChange::Removed,
+                (_, Some(other)) => job.compare(other),
             };
-            msgs.entry(msg).or_default().push(attr.to_string());
+            summary.entry(change).or_default().push(attr.to_string());
         }
-        for (&msg, attrs) in &mut msgs {
-            attrs.sort();
-            println!("{msg} ({}):", attrs.len());
-            println!("    {}", attrs.join(", "));
+        for change in CiChange::iter() {
+            summary.entry(change).and_modify(|attrs| {
+                attrs.sort();
+                println!("{change} ({}):", attrs.len());
+                if change.get_bool("list_attrs").unwrap_or(true) {
+                    for attr in attrs {
+                        println!("  - {attr}");
+                    }
+                }
+            });
         }
     }
 }

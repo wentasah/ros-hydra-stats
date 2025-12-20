@@ -220,6 +220,7 @@ fn print_eval_failure_summary(jobs: &Vec<JsonValue>) {
 }
 
 struct HydraEval {
+    eval_id: u64,
     hydra_builds: Vec<JsonValue>,
     eval_jobs: Vec<JsonValue>,
 }
@@ -327,6 +328,7 @@ impl<'a> HydraAttrStatus<'a> {
 }
 
 struct HydraEvalSummary<'a> {
+    eval_id: u64,
     attrs: HashMap<&'a str, HydraAttrStatus<'a>>,
 }
 
@@ -412,8 +414,9 @@ impl<'a> HydraEvalSummary<'a> {
 }
 
 impl HydraEval {
-    pub fn new(hydra_builds: Vec<JsonValue>, eval_jobs: Vec<JsonValue>) -> Self {
+    pub fn new(id: u64, hydra_builds: Vec<JsonValue>, eval_jobs: Vec<JsonValue>) -> Self {
         Self {
+            eval_id: id,
             hydra_builds,
             eval_jobs,
         }
@@ -431,6 +434,7 @@ impl HydraEval {
             })
             .collect();
         HydraEvalSummary {
+            eval_id: self.eval_id,
             attrs: self
                 .eval_jobs
                 .iter()
@@ -457,7 +461,7 @@ impl HydraEval {
 
 async fn fetch_hydra_eval(
     hydra: Arc<Hydra>,
-    eval_id: usize,
+    eval_id: u64,
     mp: &MultiProgress,
 ) -> anyhow::Result<HydraEval> {
     mp.println(format!("Fetching hydra evaluation {eval_id}..."))?;
@@ -517,7 +521,7 @@ async fn fetch_hydra_eval(
         .into_iter()
         .collect::<anyhow::Result<Vec<_>>>()?;
 
-    Ok(HydraEval::new(hydra_builds, jobs?))
+    Ok(HydraEval::new(eval_id, hydra_builds, jobs?))
 }
 
 fn process_and_print_eval_stats(hydra_eval: HydraEval, cli: cli::EvalArgs) -> anyhow::Result<()> {
@@ -645,8 +649,8 @@ async fn handle_pr(hydra: Arc<Hydra>, pr_num: usize, mp: &MultiProgress) -> anyh
     };
 
     let evals = join_all(vec![
-        fetch_hydra_eval(hydra.clone(), base_eval as usize, mp),
-        fetch_hydra_eval(hydra.clone(), head_eval as usize, mp),
+        fetch_hydra_eval(hydra.clone(), base_eval, mp),
+        fetch_hydra_eval(hydra.clone(), head_eval, mp),
     ])
     .await
     .into_iter()

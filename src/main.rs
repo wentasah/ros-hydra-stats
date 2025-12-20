@@ -160,6 +160,7 @@ struct EvalErrorAnalyzer {
     broken: Regex,
     unfree: Regex,
     missing_arg: Regex,
+    other: Regex,
 }
 
 impl EvalErrorAnalyzer {
@@ -169,20 +170,24 @@ impl EvalErrorAnalyzer {
             broken : Regex::new(r"error: Package ‘[^’]*’( in /nix/store[^ ]*) is marked as (broken|insecure), refusing to evaluate").unwrap(),
             unfree : Regex::new(r"error: Package ‘[^’]*’( in /nix/store[^ ]*) has an unfree license \(‘[^’]*’\), refusing to evaluate").unwrap(),
             missing_arg: Regex::new(r#"callPackageWith: Function called without required argument "[^"]*""#).unwrap(),
+            other: Regex::new(r"    (error: .*)").unwrap(),
         }
     }
     pub fn analyze(&self, error: &str) -> Option<String> {
-        if let Some(mtch) = self.missing.find_iter(error).next() {
+        if let Some(mtch) = self.missing.find(error) {
             return Some(mtch.as_str().to_string());
         }
-        if let Some(cap) = self.broken.captures_iter(error).next() {
+        if let Some(cap) = self.broken.captures(error) {
             return Some(cap[0].replace(&cap[1], ""));
         }
-        if let Some(cap) = self.unfree.captures_iter(error).next() {
+        if let Some(cap) = self.unfree.captures(error) {
             return Some(cap[0].replace(&cap[1], ""));
         }
-        if let Some(mtch) = self.missing_arg.find_iter(error).next() {
+        if let Some(mtch) = self.missing_arg.find(error) {
             return Some(mtch.as_str().to_string());
+        }
+        if let Some(cap) = self.other.captures(error) {
+            return Some(cap[1].to_string());
         }
         None
     }

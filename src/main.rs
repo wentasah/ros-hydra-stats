@@ -368,6 +368,7 @@ impl<'a> HydraEvalSummary<'a> {
                     });
             }
         }
+        println!("### Hydra build and evaluation statistics");
         for change in CiChange::iter() {
             summary.entry(change).and_modify(|attrs| {
                 let count = attrs.len();

@@ -326,7 +326,9 @@ impl<'a> HydraAttrStatus<'a> {
     }
 }
 
-struct HydraEvalSummary<'a>(HashMap<&'a str, HydraAttrStatus<'a>>);
+struct HydraEvalSummary<'a> {
+    attrs: HashMap<&'a str, HydraAttrStatus<'a>>,
+}
 
 fn _escape_markdown(input: &str) -> String {
     let special_chars = r"\`*_{}[]()#+-.!";
@@ -345,8 +347,8 @@ fn _escape_markdown(input: &str) -> String {
 impl<'a> HydraEvalSummary<'a> {
     fn compare(&self, other: &HydraEvalSummary) {
         let mut summary: HashMap<CiChange, Vec<AttrInfo>> = HashMap::new();
-        for (&attr, status) in &self.0 {
-            let other_status = other.0.get(attr);
+        for (&attr, status) in &self.attrs {
+            let other_status = other.attrs.get(attr);
             let change = match (status, other_status) {
                 (_, None) => CiChange::Removed,
                 (_, Some(other)) => status.compare(other),
@@ -356,8 +358,8 @@ impl<'a> HydraEvalSummary<'a> {
                 status: other_status.copied(),
             });
         }
-        for (&attr, other_status) in &other.0 {
-            let self_status = self.0.get(attr);
+        for (&attr, other_status) in &other.attrs {
+            let self_status = self.attrs.get(attr);
             if self_status.is_none() {
                 summary
                     .entry(other_status.ci_chage_as_new())
@@ -428,8 +430,9 @@ impl HydraEval {
                 )
             })
             .collect();
-        HydraEvalSummary(
-            self.eval_jobs
+        HydraEvalSummary {
+            attrs: self
+                .eval_jobs
                 .iter()
                 .map(|job| {
                     let attr = job["attr"].as_str().unwrap();
@@ -444,7 +447,7 @@ impl HydraEval {
                         .unwrap_or((attr, HydraAttrStatus::Unbuilt))
                 })
                 .collect(),
-        )
+        }
     }
 
     fn compare(&self, other: &Self) {

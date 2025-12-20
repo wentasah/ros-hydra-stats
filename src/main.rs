@@ -244,39 +244,41 @@ impl HydraBuild {
     strum_macros::Display, strum_macros::EnumProperty, Eq, Hash, PartialEq, EnumIter, Clone, Copy,
 )]
 enum CiChange {
-    #[strum(to_string = "Added successfully")]
+    #[strum(to_string = "✅ Added successfully")]
     AddedOk,
-    #[strum(to_string = "Added with eval errors")]
+    #[strum(to_string = "❌ Added with eval errors")]
     AddedEvalError,
-    #[strum(to_string = "Added with build failure")]
+    #[strum(to_string = "❌ Added with build failure")]
     AddedBuildFailure,
-    #[strum(to_string = "Added unbuilt attributes")]
+    #[strum(to_string = "⚠️ Added unbuilt attributes")]
     AddedUnbuilt,
-    #[strum(to_string = "Removed")]
+    #[strum(to_string = "✅ Removed")]
     Removed,
-    #[strum(to_string = "Introduced eval errors")]
+    #[strum(to_string = "❌ Introduced eval errors")]
     NewEvalError,
-    #[strum(to_string = "Fixed eval errors but build fails")]
+    #[strum(to_string = "❌ Fixed eval errors but build fails")]
     FixedEvalErrorBuildFails,
-    #[strum(to_string = "Fixed eval errors")]
+    #[strum(to_string = "✅ Fixed eval errors")]
     FexedEvalError,
-    #[strum(to_string = "Still present eval errors", props(list_attrs = false))]
+    #[strum(to_string = "⚠️ Still present eval errors", props(list_attrs = false))]
     EvalErrrorNoChange,
-    #[strum(to_string = "Introduced build failures")]
+    #[strum(to_string = "❌ Introduced build failures")]
     NewBuildFailure,
-    #[strum(to_string = "Fixed build failures")]
+    #[strum(to_string = "✅ Fixed build failures")]
     FixedBuildFailure,
-    #[strum(to_string = "Still failing builds", props(list_attrs = false))]
+    #[strum(to_string = "⚠️ Still failing builds", props(list_attrs = false))]
     BuildFailureNoChange,
-    #[strum(to_string = "Still succeeding builds", props(list_attrs = false))]
+    #[strum(to_string = "✅ Still succeeding builds", props(list_attrs = false))]
     BuildSuccessNoChange,
-    #[strum(to_string = "Still unbuilt attributes", props(list_attrs = false))]
+    #[strum(to_string = "✅ Still unbuilt attributes", props(list_attrs = false))]
     UnbuiltNoChange,
-    #[strum(to_string = "Turns unbuilt attributes into eval error")]
+    #[strum(to_string = "❌ Turns unbuilt attributes into eval error")]
     UnbuiltToEvalError,
-    #[strum(to_string = "Starts building previously unbuilt attributes")]
-    UnbuiltToBuild,
-    #[strum(to_string = "Introduced unbuilt attributes")]
+    #[strum(to_string = "❌ Starts building previously unbuilt attributes with failure")]
+    UnbuiltToBuildFailure,
+    #[strum(to_string = "✅ Starts building previously unbuilt attributes successfully")]
+    UnbuiltToBuildOk,
+    #[strum(to_string = "⚠️ Introduced unbuilt attributes")]
     NewUnbuiltAttr,
 }
 
@@ -307,7 +309,8 @@ impl<'a> HydraAttrStatus<'a> {
             (Build(_), Build(_)) => BuildSuccessNoChange,
             (Unbuilt, Unbuilt) => UnbuiltNoChange,
             (Unbuilt, EvalError(_)) => UnbuiltToEvalError,
-            (Unbuilt, Build(_)) => UnbuiltToBuild,
+            (Unbuilt, Build(b)) if b.success() => UnbuiltToBuildOk,
+            (Unbuilt, Build(_)) => UnbuiltToBuildFailure,
             (_, Unbuilt) => NewUnbuiltAttr,
         }
     }
@@ -367,29 +370,24 @@ impl<'a> HydraEvalSummary<'a> {
         }
         for change in CiChange::iter() {
             summary.entry(change).and_modify(|attrs| {
+                let count = attrs.len();
                 attrs.sort_by(|a, b| a.attr.cmp(&b.attr));
-                println!("\n{change}: {}", attrs.len());
+                println!(
+                    "<details>\n\
+                          <summary>{change}: {count}</summary>\n\
+                          \n"
+                );
+                let header = OnceCell::new();
                 if change.get_bool("list_attrs").unwrap_or(true) {
-                    let footer = OnceCell::<&str>::new();
                     for attr_info in attrs {
                         match attr_info.status {
                             Some(HydraAttrStatus::Build(b)) => {
-                                footer.get_or_init(|| {
-                                    println!("<details>");
-                                    println!("  <summary>List attributes</summary>");
-                                    println!();
-                                    "</details>"
-                                });
                                 println!("  - [{}]({})", attr_info.attr, b.url())
                             }
                             Some(HydraAttrStatus::EvalError(err)) => {
-                                footer.get_or_init(|| {
-                                    println!("<details>");
-                                    println!("  <summary>Failed attributes</summary>");
-                                    println!();
+                                header.get_or_init(|| {
                                     println!("  | Attribute | Reason |");
                                     println!("  |-----------|--------|");
-                                    "</details>"
                                 });
                                 println!(
                                     "  | {} | {} |",
@@ -403,8 +401,8 @@ impl<'a> HydraEvalSummary<'a> {
                             _ => println!("  - {}", attr_info.attr),
                         }
                     }
-                    println!("{}", footer.get().unwrap_or(&""))
-                };
+                }
+                println!("</details>\n");
             });
         }
     }

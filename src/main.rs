@@ -239,6 +239,14 @@ impl HydraBuild {
     strum_macros::Display, strum_macros::EnumProperty, Eq, Hash, PartialEq, EnumIter, Clone, Copy,
 )]
 enum CiChange {
+    #[strum(to_string = "Added successfully")]
+    AddedOk,
+    #[strum(to_string = "Added with eval errors")]
+    AddedEvalError,
+    #[strum(to_string = "Added with build failure")]
+    AddedBuildFailure,
+    #[strum(to_string = "Added unbuilt attributes")]
+    AddedUnbuilt,
     #[strum(to_string = "Removed")]
     Removed,
     #[strum(to_string = "Introduced eval errors")]
@@ -298,6 +306,16 @@ impl<'a> HydraAttrStatus<'a> {
             (_, Unbuilt) => NewUnbuiltAttr,
         }
     }
+    fn ci_chage_as_new(&self) -> CiChange {
+        use CiChange::*;
+        use HydraAttrStatus::*;
+        match self {
+            EvalError(_) => AddedEvalError,
+            Build(b) if b.success() => AddedOk,
+            Build(_) => AddedBuildFailure,
+            Unbuilt => AddedUnbuilt,
+        }
+    }
 }
 
 struct HydraEvalSummary<'a>(HashMap<&'a str, HydraAttrStatus<'a>>);
@@ -329,6 +347,18 @@ impl<'a> HydraEvalSummary<'a> {
                 attr: attr.to_string(),
                 status: other_status.copied(),
             });
+        }
+        for (&attr, other_status) in &other.0 {
+            let self_status = self.0.get(attr);
+            if self_status.is_none() {
+                summary
+                    .entry(other_status.ci_chage_as_new())
+                    .or_default()
+                    .push(AttrInfo {
+                        attr: attr.to_string(),
+                        status: Some(*other_status),
+                    });
+            }
         }
         for change in CiChange::iter() {
             summary.entry(change).and_modify(|attrs| {

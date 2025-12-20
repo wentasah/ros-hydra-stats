@@ -406,6 +406,11 @@ impl<'a> HydraEvalSummary<'a> {
                             _ => println!("  - {}", attr_info.attr),
                         }
                     }
+                } else {
+                    println!(
+                        "[Hydra comparison](https://hydra.iid.ciirc.cvut.cz/eval/{}?compare={})",
+                        other.eval_id, self.eval_id
+                    );
                 }
                 println!("</details>\n");
             });

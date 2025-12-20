@@ -534,16 +534,6 @@ fn process_and_print_eval_stats(hydra_eval: HydraEval, cli: cli::EvalArgs) -> an
 }
 
 async fn handle_pr(hydra: Arc<Hydra>, pr_num: usize, mp: &MultiProgress) -> anyhow::Result<()> {
-    let jobsets = join_all(vec![
-        hydra.get("jobset/nix-ros-experiments/wentasah-rosdistro-sync/evals"),
-        hydra.get("jobset/nix-ros-experiments/wentasah-test/evals"),
-        hydra.get("jobset/nix-ros-experiments/lopsided98-develop/evals"),
-        // TODO: Reread without cache if eval is not found below
-    ])
-    .await
-    .into_iter()
-    .collect::<Result<Vec<_>, _>>()?;
-
     let gh = Command::new("gh")
         .arg("api")
         .arg(format!("repos/lopsided98/nix-ros-overlay/pulls/{pr_num}"))
@@ -554,27 +544,49 @@ async fn handle_pr(hydra: Arc<Hydra>, pr_num: usize, mp: &MultiProgress) -> anyh
     let base_sha = pr["base"]["sha"].as_str().unwrap();
     let head_sha = pr["head"]["sha"].as_str().unwrap();
 
-    let find_eval_id_of_commit = |sha: &str| {
-        jobsets.iter().find_map(|evals| {
-            evals["evals"].as_array().unwrap().iter().find_map(|eval| {
-                (eval // wrap line
-                 ["jobsetevalinputs"].as_object().unwrap() // wrap line
-                 ["nix-ros-overlay"].as_object().unwrap() // wrap line
-                 ["revision"].as_str().unwrap() // wrap line
-                 == sha)
-                    .then_some(eval["id"].as_u64().unwrap())
-            })
-        })
-    };
-    let base_eval = find_eval_id_of_commit(base_sha);
-    let head_eval = find_eval_id_of_commit(head_sha);
+    let mut use_cache = false;
+    let (base_eval, head_eval) = loop {
+        let jobsets = join_all(vec![
+            hydra.get("jobset/nix-ros-experiments/wentasah-rosdistro-sync/evals"),
+            hydra.get("jobset/nix-ros-experiments/wentasah-test/evals"),
+            hydra.get("jobset/nix-ros-experiments/lopsided98-develop/evals"),
+            // TODO: Reread without cache if eval is not found below
+        ])
+        .await
+        .into_iter()
+        .collect::<Result<Vec<_>, _>>()?;
 
-    dbg!(base_eval);
-    dbg!(head_eval);
+        let find_eval_id_of_commit = |sha: &str| {
+            jobsets.iter().find_map(|evals| {
+                evals["evals"].as_array().unwrap().iter().find_map(|eval| {
+                    (eval // wrap line
+                     ["jobsetevalinputs"].as_object().unwrap() // wrap line
+                     ["nix-ros-overlay"].as_object().unwrap() // wrap line
+                     ["revision"].as_str().unwrap() // wrap line
+                     == sha)
+                        .then_some(eval["id"].as_u64().unwrap())
+                })
+            })
+        };
+        let base_eval = find_eval_id_of_commit(base_sha);
+        let head_eval = find_eval_id_of_commit(head_sha);
+        match (base_eval, head_eval, use_cache) {
+            (Some(be), Some(he), _) => break (be, he),
+            (_, _, true) => {
+                use_cache = false;
+                continue;
+            }
+            (_, _, _) => bail!(
+                "Cannot find needed Hydra evaluations for both commits: base={base_sha}->{} head={head_sha}->{}",
+                base_eval.map_or("???".to_string(), |v| v.to_string()),
+                head_eval.map_or("???".to_string(), |v| v.to_string()),
+            ),
+        }
+    };
 
     let evals = join_all(vec![
-        fetch_hydra_eval(hydra.clone(), base_eval.unwrap() as usize, mp),
-        fetch_hydra_eval(hydra.clone(), head_eval.unwrap() as usize, mp),
+        fetch_hydra_eval(hydra.clone(), base_eval as usize, mp),
+        fetch_hydra_eval(hydra.clone(), head_eval as usize, mp),
     ])
     .await
     .into_iter()

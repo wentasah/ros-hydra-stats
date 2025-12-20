@@ -234,30 +234,30 @@ enum CiChange {
     FixedEvalErrorBuildFails,
     #[strum(to_string = "Fixed eval errors")]
     FexedEvalError,
-    #[strum(to_string = "Kept eval errors", props(list_attrs = false))]
+    #[strum(to_string = "Still present eval errors", props(list_attrs = false))]
     EvalErrrorNoChange,
-    #[strum(to_string = "Introduced new build failures")]
+    #[strum(to_string = "Introduced build failures")]
     NewBuildFailure,
     #[strum(to_string = "Fixed build failures")]
     FixedBuildFailure,
-    #[strum(to_string = "Kept build failures", props(list_attrs = false))]
+    #[strum(to_string = "Still failing builds", props(list_attrs = false))]
     BuildFailureNoChange,
-    #[strum(to_string = "Kept build successes", props(list_attrs = false))]
+    #[strum(to_string = "Still succeeding builds", props(list_attrs = false))]
     BuildSuccessNoChange,
-    #[strum(to_string = "Kept missing builds", props(list_attrs = false))]
-    MissingBuildNoChange,
-    #[strum(to_string = "Turns missing build into eval error")]
-    MissingBuildToEvalError,
-    #[strum(to_string = "Turns missing build into build")]
-    MissingBuildToBuild,
-    #[strum(to_string = "Introduced missing builds")]
-    NewMissingBuild,
+    #[strum(to_string = "Kept unbuilt attributes", props(list_attrs = false))]
+    UnbuiltNoChange,
+    #[strum(to_string = "Turns unbuilt attributes into eval error")]
+    UnbuiltToEvalError,
+    #[strum(to_string = "Starts building previously unbuilt attributes")]
+    UnbuiltToBuild,
+    #[strum(to_string = "Introduced unbuilt attributes")]
+    NewUnbuiltAttr,
 }
 
 enum HydraJob<'a> {
     EvalError(&'a str),
     Build(HydraBuild),
-    MissingBuild,
+    UnbuiltAttr,
 }
 
 impl<'a> HydraJob<'a> {
@@ -273,10 +273,10 @@ impl<'a> HydraJob<'a> {
             (Build(b1), Build(b2)) if !b1.success() && b2.success() => FixedBuildFailure,
             (Build(b1), Build(b2)) if !b1.success() && !b2.success() => BuildFailureNoChange,
             (Build(_), Build(_)) => BuildSuccessNoChange,
-            (MissingBuild, MissingBuild) => MissingBuildNoChange,
-            (MissingBuild, EvalError(_)) => MissingBuildToEvalError,
-            (MissingBuild, Build(_)) => MissingBuildToBuild,
-            (_, MissingBuild) => NewMissingBuild,
+            (UnbuiltAttr, UnbuiltAttr) => UnbuiltNoChange,
+            (UnbuiltAttr, EvalError(_)) => UnbuiltToEvalError,
+            (UnbuiltAttr, Build(_)) => UnbuiltToBuild,
+            (_, UnbuiltAttr) => NewUnbuiltAttr,
         }
     }
 }
@@ -340,7 +340,7 @@ impl HydraEval {
                                 .get(format!("rosPackages.{attr}").as_str())
                                 .map(|build| (attr, HydraJob::Build(build.clone())))
                         })
-                        .unwrap_or((attr, HydraJob::MissingBuild))
+                        .unwrap_or((attr, HydraJob::UnbuiltAttr))
                 })
                 .collect(),
         )

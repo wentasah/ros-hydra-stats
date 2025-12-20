@@ -552,9 +552,15 @@ async fn handle_pr(hydra: Arc<Hydra>, pr_num: usize, mp: &MultiProgress) -> anyh
     let mut use_cache = true;
     let (base_eval, head_eval) = loop {
         let jobsets = join_all(vec![
-            hydra.get_with_cachectrl("jobset/nix-ros-experiments/wentasah-rosdistro-sync/evals", use_cache),
+            hydra.get_with_cachectrl(
+                "jobset/nix-ros-experiments/wentasah-rosdistro-sync/evals",
+                use_cache,
+            ),
             hydra.get_with_cachectrl("jobset/nix-ros-experiments/wentasah-test/evals", use_cache),
-            hydra.get_with_cachectrl("jobset/nix-ros-experiments/lopsided98-develop/evals", use_cache),
+            hydra.get_with_cachectrl(
+                "jobset/nix-ros-experiments/lopsided98-develop/evals",
+                use_cache,
+            ),
             // TODO: Reread without cache if eval is not found below
         ])
         .await

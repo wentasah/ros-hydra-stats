@@ -33,10 +33,14 @@ impl Hydra {
     }
 
     async fn get(&self, path: &str) -> anyhow::Result<JsonValue> {
+        self.get_with_cachectrl(path, true).await
+    }
+
+    async fn get_with_cachectrl(&self, path: &str, use_cache: bool) -> anyhow::Result<JsonValue> {
         let cache_path = format!("{CACHE_DIR}/{path}");
         loop {
             let mut was_cached = false;
-            let json_str = if let Ok(cached) = fs::read_to_string(&cache_path).await {
+            let json_str = if use_cache && let Ok(cached) = fs::read_to_string(&cache_path).await {
                 was_cached = true;
                 cached
             } else {
@@ -544,12 +548,13 @@ async fn handle_pr(hydra: Arc<Hydra>, pr_num: usize, mp: &MultiProgress) -> anyh
     let base_sha = pr["base"]["sha"].as_str().unwrap();
     let head_sha = pr["head"]["sha"].as_str().unwrap();
 
-    let mut use_cache = false;
+    // Try with the cache first, then without
+    let mut use_cache = true;
     let (base_eval, head_eval) = loop {
         let jobsets = join_all(vec![
-            hydra.get("jobset/nix-ros-experiments/wentasah-rosdistro-sync/evals"),
-            hydra.get("jobset/nix-ros-experiments/wentasah-test/evals"),
-            hydra.get("jobset/nix-ros-experiments/lopsided98-develop/evals"),
+            hydra.get_with_cachectrl("jobset/nix-ros-experiments/wentasah-rosdistro-sync/evals", use_cache),
+            hydra.get_with_cachectrl("jobset/nix-ros-experiments/wentasah-test/evals", use_cache),
+            hydra.get_with_cachectrl("jobset/nix-ros-experiments/lopsided98-develop/evals", use_cache),
             // TODO: Reread without cache if eval is not found below
         ])
         .await
@@ -573,6 +578,7 @@ async fn handle_pr(hydra: Arc<Hydra>, pr_num: usize, mp: &MultiProgress) -> anyh
         match (base_eval, head_eval, use_cache) {
             (Some(be), Some(he), _) => break (be, he),
             (_, _, true) => {
+                // Second try without cache
                 use_cache = false;
                 continue;
             }

@@ -8,6 +8,7 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use std::collections::{HashMap, HashSet};
+use std::sync::LazyLock;
 use std::{path::Path, process::Stdio, sync::Arc};
 use strum::{EnumIter, EnumProperty, IntoEnumIterator};
 use tokio::fs;
@@ -149,19 +150,26 @@ fn dependent_job_counts(build: &JsonValue, jobs: &HashMap<&str, Vec<&str>>) -> V
     dep_counts
 }
 
+struct EvalErrorAnalyzer {
+    missing: Regex,
+    broken: Regex,
+    unfree: Regex,
+    missing_arg: Regex,
+}
+
+impl EvalErrorAnalyzer {
+    pub fn new() -> Self {
+        Self {
+            missing: Regex::new(r"error: attribute '[^']*' missing").unwrap(),
+            broken : Regex::new(r"error: Package ‘[^’]*’( in /nix/store[^ ]*) is marked as (broken|insecure), refusing to evaluate").unwrap(),
+            unfree : Regex::new(r"error: Package ‘[^’]*’( in /nix/store[^ ]*) has an unfree license \(‘[^’]*’\), refusing to evaluate").unwrap(),
+            missing_arg: Regex::new(r#"callPackageWith: Function called without required argument "[^"]*""#).unwrap(),
+        }
+    }
+}
+
 fn print_eval_failure_summary(jobs: &Vec<JsonValue>) {
-    let re_missing = Regex::new(r"error: attribute '[^']*' missing").unwrap();
-    let re_broken = Regex::new(
-        r"error: Package ‘[^’]*’( in /nix/store[^ ]*) is marked as (broken|insecure), refusing to evaluate",
-    )
-    .unwrap();
-    let re_unfree = Regex::new(
-        r"error: Package ‘[^’]*’( in /nix/store[^ ]*) has an unfree license \(‘[^’]*’\), refusing to evaluate",
-    )
-    .unwrap();
-    let re_missing_arg =
-        Regex::new(r#"callPackageWith: Function called without required argument "[^"]*""#)
-            .unwrap();
+    let re: LazyLock<EvalErrorAnalyzer> = LazyLock::new(EvalErrorAnalyzer::new);
     let mut eval_failure_reasons: HashMap<String, Vec<&str>> = HashMap::new();
     for job in jobs {
         if let Some(JsonValue::String(error)) = job.get("error") {
@@ -175,16 +183,16 @@ fn print_eval_failure_summary(jobs: &Vec<JsonValue>) {
                     .or_default()
                     .push(attr);
             };
-            for m in re_missing.find_iter(error) {
+            for m in re.missing.find_iter(error) {
                 record_reason(m.as_str());
             }
-            for cap in re_broken.captures_iter(error) {
+            for cap in re.broken.captures_iter(error) {
                 record_reason(&cap[0].replace(&cap[1], ""));
             }
-            for cap in re_unfree.captures_iter(error) {
+            for cap in re.unfree.captures_iter(error) {
                 record_reason(&cap[0].replace(&cap[1], ""));
             }
-            for m in re_missing_arg.find_iter(error) {
+            for m in re.missing_arg.find_iter(error) {
                 record_reason(m.as_str());
             }
             if cnt == 0 {

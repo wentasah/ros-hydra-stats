@@ -257,7 +257,7 @@ enum CiChange {
     BuildFailureNoChange,
     #[strum(to_string = "Still succeeding builds", props(list_attrs = false))]
     BuildSuccessNoChange,
-    #[strum(to_string = "Kept unbuilt attributes", props(list_attrs = false))]
+    #[strum(to_string = "Still unbuilt attributes", props(list_attrs = false))]
     UnbuiltNoChange,
     #[strum(to_string = "Turns unbuilt attributes into eval error")]
     UnbuiltToEvalError,
@@ -335,29 +335,40 @@ impl<'a> HydraEvalSummary<'a> {
                 attrs.sort_by(|a, b| a.attr.cmp(&b.attr));
                 println!("\n{change}: {}", attrs.len());
                 if change.get_bool("list_attrs").unwrap_or(true) {
-                    let header = OnceCell::new();
+                    let footer = OnceCell::<&str>::new();
                     for attr_info in attrs {
                         match attr_info.status {
                             Some(HydraAttrStatus::Build(b)) => {
+                                footer.get_or_init(|| {
+                                    println!("<details>");
+                                    println!("  <summary>List attributes</summary>");
+                                    println!();
+                                    "</details>"
+                                });
                                 println!("  - [{}]({})", attr_info.attr, b.url())
                             }
                             Some(HydraAttrStatus::EvalError(err)) => {
-                                header.get_or_init(|| {
+                                footer.get_or_init(|| {
+                                    println!("<details>");
+                                    println!("  <summary>Failed attributes</summary>");
+                                    println!();
                                     println!("  | Attribute | Reason |");
                                     println!("  |-----------|--------|");
+                                    "</details>"
                                 });
                                 println!(
                                     "  | {} | {} |",
                                     attr_info.attr,
                                     EVAL_ERROR_ANALYZER
                                         .analyze(err)
-                                        .map(|reason| format!("```{}```", reason))
+                                        .map(|reason| format!("``` {} ```", reason))
                                         .unwrap_or("Unrecognized eval error".into())
                                 )
                             }
                             _ => println!("  - {}", attr_info.attr),
                         }
                     }
+                    println!("{}", footer.get().unwrap_or(&""))
                 };
             });
         }

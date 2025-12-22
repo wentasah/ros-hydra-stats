@@ -432,9 +432,11 @@ impl HydraEval {
             .hydra_builds
             .iter()
             .map(|build| {
+                let job = build["job"].as_str().unwrap();
                 (
-                    build["job"].as_str().unwrap(),
-                    serde_json::from_value(build.clone()).unwrap(),
+                    job,
+                    serde_json::from_value(build.clone())
+                        .expect(&format!("Cannot create HydraBuild for {job}")),
                 )
             })
             .collect();

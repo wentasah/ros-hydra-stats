@@ -236,6 +236,9 @@ impl HydraBuild {
     fn success(&self) -> bool {
         self.finished == 1 && self.buildstatus == 0
     }
+    fn aborted(&self) -> bool {
+        self.finished == 1 && self.buildstatus == 3
+    }
     fn url(&self) -> String {
         format!("https://hydra.iid.ciirc.cvut.cz/build/{}", self.id)
     }
@@ -325,6 +328,13 @@ impl<'a> HydraAttrStatus<'a> {
             Unbuilt => AddedUnbuilt,
         }
     }
+    fn panic_if_aborted(&self, attr: &str) {
+        if let HydraAttrStatus::Build(b) = self
+            && b.aborted()
+        {
+            panic!("attribute {attr} aborted in, see {}", b.url());
+        }
+    }
 }
 
 struct HydraEvalSummary<'a> {
@@ -350,6 +360,7 @@ impl<'a> HydraEvalSummary<'a> {
     fn compare(&self, other: &HydraEvalSummary) {
         let mut summary: HashMap<CiChange, Vec<AttrInfo>> = HashMap::new();
         for (&attr, status) in &self.attrs {
+            status.panic_if_aborted(attr);
             let other_status = other.attrs.get(attr);
             let change = match (status, other_status) {
                 (_, None) => CiChange::Removed,
@@ -361,6 +372,7 @@ impl<'a> HydraEvalSummary<'a> {
             });
         }
         for (&attr, other_status) in &other.attrs {
+            other_status.panic_if_aborted(attr);
             let self_status = self.attrs.get(attr);
             if self_status.is_none() {
                 summary

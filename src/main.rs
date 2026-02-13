@@ -4,6 +4,7 @@ use futures::future::join_all;
 use futures::join;
 use futures::stream::{self, StreamExt};
 use indicatif::{MultiProgress, ProgressBar, ProgressIterator, ProgressStyle};
+use log::warn;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
@@ -662,6 +663,31 @@ async fn handle_pr(hydra: Arc<Hydra>, pr_num: usize, mp: &MultiProgress) -> anyh
                 use_cache = false;
                 continue;
             }
+            // No eval found for develop branch - use the lastest
+            // eval. It can happen when the last commit doesn't change
+            // the result of evaluation, e.g. it changes README or CI.
+            (None, Some(he), false)
+                if pr["base"]["repo"]["full_name"] == "lopsided98/nix-ros-overlay"
+                    && pr["base"]["ref"] == "develop" =>
+            {
+                let develop_evals = hydra
+                    .get("jobset/nix-ros-experiments/lopsided98-develop/evals")
+                    .await?;
+                let develop_latest_eval = develop_evals["evals"]
+                    .as_array()
+                    .unwrap()
+                    .first()
+                    .unwrap()
+                    .get("id")
+                    .unwrap()
+                    .as_u64()
+                    .unwrap();
+                warn!(
+                    "Cannot find Hydra evaluation for base commit {base_sha}. \
+                     Using latest evaluation {develop_latest_eval} of the develop branch instead."
+                );
+                break (develop_latest_eval, he);
+            }
             (_, _, _) => bail!(
                 "Cannot find needed Hydra evaluations for both commits: base={base_sha}->{} head={head_sha}->{}",
                 base_eval.map_or("???".to_string(), |v| v.to_string()),
@@ -683,6 +709,10 @@ async fn handle_pr(hydra: Arc<Hydra>, pr_num: usize, mp: &MultiProgress) -> anyh
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    env_logger::builder()
+        .format_timestamp(None)
+        .filter_level(log::LevelFilter::Info)
+        .init();
     let cli = cli::Cli::parse();
 
     let hydra = Arc::new(Hydra::new());

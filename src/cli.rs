@@ -11,9 +11,14 @@ pub struct Cli {
 pub enum Commands {
     /// Print hydra eval stats
     Eval(EvalArgs),
-    PR {
-        /// Produce comparison PR source and target
-        pr: usize,
+    /// Produce comparison of PR source and target
+    PR { pr: usize },
+    /// Produce comparison of two evaluations
+    Compare {
+        /// Old eval id
+        old: u64,
+        /// New eval id
+        new: u64,
     },
 }
 

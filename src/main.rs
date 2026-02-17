@@ -696,6 +696,15 @@ async fn handle_pr(hydra: Arc<Hydra>, pr_num: usize, mp: &MultiProgress) -> anyh
         }
     };
 
+    compare_evals(hydra, mp, base_eval, head_eval).await
+}
+
+async fn compare_evals(
+    hydra: Arc<Hydra>,
+    mp: &MultiProgress,
+    base_eval: u64,
+    head_eval: u64,
+) -> anyhow::Result<()> {
     let evals = join_all(vec![
         fetch_hydra_eval(hydra.clone(), base_eval, mp),
         fetch_hydra_eval(hydra.clone(), head_eval, mp),
@@ -727,6 +736,7 @@ async fn main() -> anyhow::Result<()> {
         cli::Commands::PR { pr } => {
             handle_pr(hydra.clone(), pr, &mp).await?;
         }
+        cli::Commands::Compare { old, new } => compare_evals(hydra.clone(), &mp, old, new).await?,
     };
     mp.clear()?;
 

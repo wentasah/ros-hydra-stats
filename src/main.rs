@@ -612,6 +612,21 @@ fn process_and_print_eval_stats(hydra_eval: HydraEval, cli: cli::EvalArgs) -> an
     Ok(())
 }
 
+async fn get_latest_jobset_eval(hydra: Arc<Hydra>, jobset: &str) -> anyhow::Result<u64> {
+    let develop_evals = hydra
+        .get(&format!("jobset/nix-ros-experiments/{jobset}/evals"))
+        .await?;
+    Ok(develop_evals["evals"]
+        .as_array()
+        .unwrap()
+        .first()
+        .unwrap()
+        .get("id")
+        .unwrap()
+        .as_u64()
+        .unwrap())
+}
+
 async fn handle_pr(hydra: Arc<Hydra>, pr_num: usize, mp: &MultiProgress) -> anyhow::Result<()> {
     let gh = Command::new("gh")
         .arg("api")
@@ -669,18 +684,8 @@ async fn handle_pr(hydra: Arc<Hydra>, pr_num: usize, mp: &MultiProgress) -> anyh
                 if pr["base"]["repo"]["full_name"] == "lopsided98/nix-ros-overlay"
                     && pr["base"]["ref"] == "develop" =>
             {
-                let develop_evals = hydra
-                    .get("jobset/nix-ros-experiments/lopsided98-develop/evals")
-                    .await?;
-                let develop_latest_eval = develop_evals["evals"]
-                    .as_array()
-                    .unwrap()
-                    .first()
-                    .unwrap()
-                    .get("id")
-                    .unwrap()
-                    .as_u64()
-                    .unwrap();
+                let develop_latest_eval =
+                    get_latest_jobset_eval(hydra.clone(), "lopsided98-develop").await?;
                 warn!(
                     "Cannot find Hydra evaluation for base commit {base_sha}. \
                      Using latest evaluation {develop_latest_eval} of the develop branch instead."

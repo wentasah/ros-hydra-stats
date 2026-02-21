@@ -612,9 +612,16 @@ fn process_and_print_eval_stats(hydra_eval: HydraEval, cli: cli::EvalArgs) -> an
     Ok(())
 }
 
-async fn get_latest_jobset_eval(hydra: Arc<Hydra>, jobset: &str) -> anyhow::Result<u64> {
+async fn get_latest_jobset_eval(
+    hydra: Arc<Hydra>,
+    jobset: &str,
+    use_cache: bool,
+) -> anyhow::Result<u64> {
     let develop_evals = hydra
-        .get(&format!("jobset/nix-ros-experiments/{jobset}/evals"))
+        .get_with_cachectrl(
+            &format!("jobset/nix-ros-experiments/{jobset}/evals"),
+            use_cache,
+        )
         .await?;
     Ok(develop_evals["evals"]
         .as_array()
@@ -685,7 +692,7 @@ async fn handle_pr(hydra: Arc<Hydra>, pr_num: usize, mp: &MultiProgress) -> anyh
                     && pr["base"]["ref"] == "develop" =>
             {
                 let develop_latest_eval =
-                    get_latest_jobset_eval(hydra.clone(), "lopsided98-develop").await?;
+                    get_latest_jobset_eval(hydra.clone(), "lopsided98-develop", false).await?;
                 warn!(
                     "Cannot find Hydra evaluation for base commit {base_sha}. \
                      Using latest evaluation {develop_latest_eval} of the develop branch instead."
@@ -720,6 +727,32 @@ async fn compare_evals(
     Ok(())
 }
 
+async fn compare_jobsets(
+    hydra: Arc<Hydra>,
+    mp: &MultiProgress,
+    old_jobset: &str,
+    new_jobset: &str,
+    use_cache: bool,
+) -> anyhow::Result<()> {
+    let evals = join_all(vec![
+        fetch_hydra_eval(
+            hydra.clone(),
+            get_latest_jobset_eval(hydra.clone(), old_jobset, use_cache).await?,
+            mp,
+        ),
+        fetch_hydra_eval(
+            hydra.clone(),
+            get_latest_jobset_eval(hydra.clone(), new_jobset, use_cache).await?,
+            mp,
+        ),
+    ])
+    .await
+    .into_iter()
+    .collect::<Result<Vec<_>, _>>()?;
+    evals[0].compare(&evals[1]);
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     env_logger::builder()
@@ -740,7 +773,14 @@ async fn main() -> anyhow::Result<()> {
         cli::Commands::PR { pr } => {
             handle_pr(hydra.clone(), pr, &mp).await?;
         }
-        cli::Commands::Compare { old, new } => compare_evals(hydra.clone(), &mp, old, new).await?,
+        cli::Commands::CompareEvals { old, new } => {
+            compare_evals(hydra.clone(), &mp, old, new).await?
+        }
+        cli::Commands::CompareJobsets {
+            old,
+            new,
+            use_cache,
+        } => compare_jobsets(hydra.clone(), &mp, &old, &new, use_cache).await?,
     };
     mp.clear()?;
 

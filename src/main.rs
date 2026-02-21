@@ -636,7 +636,6 @@ async fn handle_pr(hydra: Arc<Hydra>, pr_num: usize, mp: &MultiProgress) -> anyh
                 "jobset/nix-ros-experiments/lopsided98-develop/evals",
                 use_cache,
             ),
-            // TODO: Reread without cache if eval is not found below
         ])
         .await
         .into_iter()

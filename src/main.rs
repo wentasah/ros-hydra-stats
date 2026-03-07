@@ -4,6 +4,7 @@ use futures::future::join_all;
 use futures::join;
 use futures::stream::{self, StreamExt};
 use indicatif::{MultiProgress, ProgressBar, ProgressIterator, ProgressStyle};
+use itertools::Itertools;
 use log::warn;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -264,7 +265,10 @@ enum CiChange {
     UnbuiltToBuildOk,
     #[strum(to_string = "⚠️ Added unbuilt attributes")]
     AddedUnbuilt,
-    #[strum(to_string = "⚠️ Still present eval errors", props(list_attrs = false))]
+    #[strum(
+        to_string = "⚠️ Still present eval errors",
+        props(list_attrs = false, summary = true)
+    )]
     EvalErrrorNoChange,
     #[strum(to_string = "⚠️ Still failing builds", props(list_attrs = false))]
     BuildFailureNoChange,
@@ -386,6 +390,8 @@ impl<'a> HydraEvalSummary<'a> {
         }
         println!("### Hydra build and evaluation statistics");
         for change in CiChange::iter() {
+            let list_attrs = change.get_bool("list_attrs").unwrap_or(true);
+            let print_summary = change.get_bool("summary").unwrap_or(false);
             summary.entry(change).and_modify(|attrs| {
                 let count = attrs.len();
                 attrs.sort_by(|a, b| a.attr.cmp(&b.attr));
@@ -394,28 +400,42 @@ impl<'a> HydraEvalSummary<'a> {
                           <summary>{change}: {count}</summary>\n\
                           \n"
                 );
-                let header = OnceCell::new();
-                if change.get_bool("list_attrs").unwrap_or(true) {
+                if list_attrs || print_summary {
+                    let header = OnceCell::new();
+                    let mut eval_summary: HashMap<String, Vec<&str>> = HashMap::new();
                     for attr_info in attrs {
                         match attr_info.status {
                             Some(HydraAttrStatus::Build(b)) => {
                                 println!("  - [{}]({})", attr_info.attr, b.url())
                             }
                             Some(HydraAttrStatus::EvalError(err)) => {
-                                header.get_or_init(|| {
-                                    println!("  | Attribute | Reason |");
-                                    println!("  |-----------|--------|");
-                                });
-                                println!(
-                                    "  | {} | {} |",
-                                    attr_info.attr,
-                                    EVAL_ERROR_ANALYZER
-                                        .analyze(err)
-                                        .map(|reason| format!("``` {} ```", reason))
-                                        .unwrap_or("Unrecognized eval error".into())
-                                )
+                                let eval_err_desc = EVAL_ERROR_ANALYZER
+                                    .analyze(err)
+                                    .map(|reason| format!("``` {} ```", reason))
+                                    .unwrap_or("Unrecognized eval error".into());
+                                if !print_summary {
+                                    header.get_or_init(|| {
+                                        println!("  | Attribute | Reason |");
+                                        println!("  |-----------|--------|");
+                                    });
+                                    println!("  | {} | {} |", attr_info.attr, eval_err_desc)
+                                } else {
+                                    header.get_or_init(|| {
+                                        println!("  | Reason | Attributes |");
+                                        println!("  |--------|------------|");
+                                    });
+                                    eval_summary
+                                        .entry(eval_err_desc)
+                                        .or_default()
+                                        .push(&attr_info.attr);
+                                }
                             }
                             _ => println!("  - {}", attr_info.attr),
+                        }
+                    }
+                    if print_summary {
+                        for (reason, attrs) in eval_summary.iter().sorted_by_key(|x| x.0) {
+                            println!("  | {reason} | {} |", attrs.join(", "))
                         }
                     }
                 } else {

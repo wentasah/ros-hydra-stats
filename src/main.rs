@@ -283,7 +283,10 @@ enum CiChange {
     AddedEvalError,
     #[strum(to_string = "❌ Added with build failures")]
     AddedBuildFailure,
-    #[strum(to_string = "❌ Introduced eval errors")]
+    #[strum(
+        to_string = "❌ Introduced eval errors",
+        props(list_attrs = false, summary = true)
+    )]
     NewEvalError,
     #[strum(to_string = "❌ Fixed eval errors but build fails")]
     FixedEvalErrorBuildFails,

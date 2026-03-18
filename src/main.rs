@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use std::cell::OnceCell;
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use std::sync::LazyLock;
 use std::{path::Path, process::Stdio, sync::Arc};
 use strum::{EnumIter, EnumProperty, IntoEnumIterator};
@@ -21,7 +22,11 @@ use tokio::process::Command;
 mod cli;
 
 static HYDRA_URL: &str = "http://10.35.95.5:3000";
-static CACHE_DIR: &str = ".cache";
+static CACHE_DIR: LazyLock<PathBuf> = LazyLock::new(|| {
+    dirs::cache_dir()
+        .expect("Expecting cache directory")
+        .join("ros-hydra-stats")
+});
 
 struct Hydra {
     client: reqwest::Client,
@@ -39,7 +44,7 @@ impl Hydra {
     }
 
     async fn get_with_cachectrl(&self, path: &str, use_cache: bool) -> anyhow::Result<JsonValue> {
-        let cache_path = format!("{CACHE_DIR}/{path}");
+        let cache_path = CACHE_DIR.join(path);
         loop {
             let mut was_cached = false;
             let json_str = if use_cache && let Ok(cached) = fs::read_to_string(&cache_path).await {
@@ -80,10 +85,10 @@ async fn nix_eval_jobs(
     cross_system: Option<&str>,
     pb: &ProgressBar,
 ) -> anyhow::Result<Vec<JsonValue>> {
-    let cache_path = format!(
-        "{CACHE_DIR}/{}_{system}_{cross_system:?}.jsonl",
-        tarball.replace("/", "_"),
-    );
+    let cache_path = CACHE_DIR.join(format!(
+        "{}_{system}_{cross_system:?}.jsonl",
+        tarball.replace("/", "_")
+    ));
     let jobs = if let Ok(cached) = fs::read_to_string(&cache_path).await {
         cached
             .lines()

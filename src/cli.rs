@@ -1,3 +1,4 @@
+use clap::ValueHint;
 use clap::{Args, Parser, Subcommand};
 
 #[derive(Parser)]
@@ -16,8 +17,10 @@ pub enum Commands {
     /// Produce comparison of two evaluations
     CompareEvals {
         /// Old eval id
+        #[arg(value_hint = ValueHint::Other)]
         old: u64,
         /// New eval id
+        #[arg(value_hint = ValueHint::Other)]
         new: u64,
     },
     /// Produce latest evaluations of nix-ros-exoeriments jobsets
@@ -35,6 +38,7 @@ pub enum Commands {
 #[derive(Args)]
 pub struct EvalArgs {
     /// Evaluation ID to analyze
+    #[arg(value_hint = ValueHint::Other)]
     pub eval_id: u64,
 
     /// Print statistics about evaluation failures

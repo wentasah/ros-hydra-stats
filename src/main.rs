@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use std::cell::OnceCell;
 use std::collections::{HashMap, HashSet};
+use std::fmt::format;
 use std::path::PathBuf;
 use std::sync::LazyLock;
 use std::{path::Path, process::Stdio, sync::Arc};
@@ -318,6 +319,9 @@ impl<'a> AttrInfo<'a> {
             pkg.replace("-", "_")
         )
     }
+    fn markdown_link(&self) -> String {
+        format!("[{}]({})", self.attr, self.ros_index_url())
+    }
 }
 
 impl<'a> HydraAttrStatus<'a> {
@@ -420,7 +424,7 @@ impl<'a> HydraEvalSummary<'a> {
                 );
                 if list_attrs || print_summary {
                     let header = OnceCell::new();
-                    let mut eval_summary: HashMap<String, Vec<&str>> = HashMap::new();
+                    let mut eval_summary: HashMap<String, Vec<String>> = HashMap::new();
                     for attr_info in attrs {
                         match attr_info.status {
                             Some(HydraAttrStatus::Build(b)) => {
@@ -441,7 +445,11 @@ impl<'a> HydraEvalSummary<'a> {
                                         println!("  | Attribute | Reason |");
                                         println!("  |-----------|--------|");
                                     });
-                                    println!("  | {} | {} |", attr_info.attr, eval_err_desc)
+                                    println!(
+                                        "  | {} | {} |",
+                                        attr_info.markdown_link(),
+                                        eval_err_desc
+                                    )
                                 } else {
                                     header.get_or_init(|| {
                                         println!("  | Reason | Attributes |");
@@ -450,7 +458,7 @@ impl<'a> HydraEvalSummary<'a> {
                                     eval_summary
                                         .entry(eval_err_desc)
                                         .or_default()
-                                        .push(&attr_info.attr);
+                                        .push(attr_info.markdown_link());
                                 }
                             }
                             _ => println!("  - {}", attr_info.attr),

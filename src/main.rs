@@ -310,6 +310,16 @@ struct AttrInfo<'a> {
     status: Option<HydraAttrStatus<'a>>,
 }
 
+impl<'a> AttrInfo<'a> {
+    fn ros_index_url(&self) -> String {
+        let (distro, pkg) = self.attr.split_once('.').unwrap_or(("", &self.attr));
+        format!(
+            "https://index.ros.org/p/{}/#{distro}",
+            pkg.replace("-", "_")
+        )
+    }
+}
+
 impl<'a> HydraAttrStatus<'a> {
     fn compare(&self, other: &HydraAttrStatus) -> CiChange {
         use CiChange::*;
@@ -414,7 +424,12 @@ impl<'a> HydraEvalSummary<'a> {
                     for attr_info in attrs {
                         match attr_info.status {
                             Some(HydraAttrStatus::Build(b)) => {
-                                println!("  - [{}]({})", attr_info.attr, b.url())
+                                println!(
+                                    "  - [{}]({}) ([ROS]({}))",
+                                    attr_info.attr,
+                                    b.url(),
+                                    attr_info.ros_index_url()
+                                );
                             }
                             Some(HydraAttrStatus::EvalError(err)) => {
                                 let eval_err_desc = EVAL_ERROR_ANALYZER

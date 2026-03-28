@@ -11,14 +11,15 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use std::cell::OnceCell;
 use std::collections::{HashMap, HashSet};
-use std::fmt::format;
 use std::path::PathBuf;
 use std::sync::LazyLock;
+use std::time::Duration;
 use std::{path::Path, process::Stdio, sync::Arc};
 use strum::{EnumIter, EnumProperty, IntoEnumIterator};
 use tokio::fs;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
+use tokio::time::sleep;
 
 mod cli;
 
@@ -46,6 +47,7 @@ impl Hydra {
 
     async fn get_with_cachectrl(&self, path: &str, use_cache: bool) -> anyhow::Result<JsonValue> {
         let cache_path = CACHE_DIR.join(path);
+        let mut failure_cnt = 0;
         loop {
             let mut was_cached = false;
             let json_str = if use_cache && let Ok(cached) = fs::read_to_string(&cache_path).await {
@@ -60,6 +62,11 @@ impl Hydra {
                     .send()
                     .await?;
                 if !response.status().is_success() {
+                    failure_cnt += 1;
+                    if failure_cnt < 10 {
+                        sleep(Duration::from_millis(300)).await;
+                        continue;
+                    }
                     bail!("Failure getting {url}: {}", response.status());
                 }
                 let data = response.text().await?;

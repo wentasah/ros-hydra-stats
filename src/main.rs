@@ -452,8 +452,12 @@ impl<'a> HydraEvalSummary<'a> {
                     for attr_info in attrs {
                         match &attr_info.status {
                             Some(HydraAttrStatus::Build(b)) => {
+                                header.get_or_init(|| {
+                                    println!("  | Attribute | ROS | deps. | all |");
+                                    println!("  |-----------|-----|-------|-----|");
+                                });
                                 println!(
-                                    "  - [{}]({}) ([ROS]({})) {} {}",
+                                    "  | [{}]({}) | [ROS]({}) | {} | {} |",
                                     attr_info.attr,
                                     b.hydra.url(),
                                     attr_info.ros_index_url(),

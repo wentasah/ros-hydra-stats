@@ -488,6 +488,15 @@ impl<'a> HydraEvalSummary<'a> {
     }
 }
 
+// TODO rename or refactor
+#[derive(Serialize, Debug)]
+struct Job<'a> {
+    job: &'a str,
+    direct_deps: usize,
+    all_deps: usize,
+    build_url: String,
+}
+
 impl HydraEval {
     pub fn new(id: u64, hydra_builds: Vec<JsonValue>, eval_jobs: Vec<JsonValue>) -> Self {
         Self {
@@ -533,6 +542,38 @@ impl HydraEval {
                 })
                 .collect(),
         }
+    }
+
+    fn get_failed_build_stats(&self) -> Vec<Job<'_>> {
+        type DrvPath = str;
+        let mut job_deps = HashMap::<&DrvPath, Vec<&DrvPath>>::new();
+        for job in &self.eval_jobs {
+            if job.get("inputDrvs").is_none() {
+                continue; // eval error
+            }
+            for input_drv in job["inputDrvs"].as_object().unwrap().keys() {
+                job_deps
+                    .entry(input_drv.as_str())
+                    .or_default()
+                    .push(job["drvPath"].as_str().unwrap());
+            }
+        }
+
+        let mut failed_jobs = Vec::new();
+        for b in self.hydra_builds.iter().filter(|build| {
+            build["buildstatus"].as_i64().unwrap_or(
+                0, /* queued builds (value null) are not considered failed */
+            ) != 0
+        }) {
+            let cnts = dependent_job_counts(b, &job_deps);
+            failed_jobs.push(Job {
+                job: b["job"].as_str().unwrap(),
+                direct_deps: *cnts.first().unwrap_or(&0),
+                all_deps: *cnts.last().unwrap_or(&0),
+                build_url: format!("{HYDRA_URL}/build/{}", b["id"]),
+            });
+        }
+        failed_jobs
     }
 
     fn compare(&self, other: &Self) {
@@ -606,57 +647,7 @@ async fn fetch_hydra_eval(
 }
 
 fn process_and_print_eval_stats(hydra_eval: HydraEval, cli: cli::EvalArgs) -> anyhow::Result<()> {
-    let mut job_deps = HashMap::<&str, Vec<&str>>::new();
-    for job in &hydra_eval.eval_jobs {
-        if job.get("inputDrvs").is_none() {
-            continue; // eval error
-        }
-        for input_drv in job["inputDrvs"].as_object().unwrap().keys() {
-            job_deps
-                .entry(input_drv.as_str())
-                .or_default()
-                .push(job["drvPath"].as_str().unwrap());
-        }
-    }
-
-    let failed_builds = hydra_eval
-        .hydra_builds
-        .iter()
-        .filter(|build| {
-            build["buildstatus"].as_i64().unwrap_or(
-                0, /* queued builds (value null) are not considered failed */
-            ) != 0
-        })
-        .collect::<Vec<_>>();
-
-    if cli.list_successful {
-        hydra_eval
-            .hydra_builds
-            .iter()
-            .filter(|build| build["buildstatus"].as_i64().is_some_and(|b| b == 0))
-            //.for_each(|build| println!("{}", build["drvpath"].as_str().unwrap()));
-            .for_each(|build| println!("{}", build["job"].as_str().unwrap()));
-        return Ok(());
-    }
-
-    #[derive(Serialize, Debug)]
-    struct Job<'a> {
-        job: &'a str,
-        direct_deps: usize,
-        all_deps: usize,
-        build_url: String,
-    }
-
-    let mut failed_jobs = Vec::new();
-    for b in failed_builds {
-        let cnts = dependent_job_counts(b, &job_deps);
-        failed_jobs.push(Job {
-            job: b["job"].as_str().unwrap(),
-            direct_deps: *cnts.first().unwrap_or(&0),
-            all_deps: *cnts.last().unwrap_or(&0),
-            build_url: format!("{HYDRA_URL}/build/{}", b["id"]),
-        });
-    }
+    let mut failed_jobs = hydra_eval.get_failed_build_stats();
 
     failed_jobs.sort_by_key(|job| job.all_deps);
 

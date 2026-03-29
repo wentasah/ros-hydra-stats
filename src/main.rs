@@ -239,11 +239,24 @@ struct HydraEval {
     eval_jobs: Vec<JsonValue>,
 }
 
-#[derive(Deserialize, Copy, Clone)]
+#[derive(Deserialize, Clone)]
 struct HydraBuild {
+    drvpath: String,
     finished: i8,
     buildstatus: i8,
     id: u64,
+}
+
+#[derive(Copy, Clone)]
+struct EvalInfo {
+    direct_deps: usize,
+    all_deps: usize,
+}
+
+#[derive(Clone)]
+struct BuildInfo {
+    eval: EvalInfo,
+    hydra: HydraBuild,
 }
 
 impl HydraBuild {
@@ -306,10 +319,10 @@ enum CiChange {
     UnbuiltToBuildFailure,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 enum HydraAttrStatus<'a> {
     EvalError(&'a str),
-    Build(HydraBuild),
+    Build(BuildInfo),
     Unbuilt,
 }
 
@@ -337,16 +350,20 @@ impl<'a> HydraAttrStatus<'a> {
         use HydraAttrStatus::*;
         match (self, other) {
             (Build(_), EvalError(_)) => NewEvalError,
-            (EvalError(_), Build(b)) if !b.success() => FixedEvalErrorBuildFails,
+            (EvalError(_), Build(b)) if !b.hydra.success() => FixedEvalErrorBuildFails,
             (EvalError(_), Build(_)) => FixedEvalError,
             (EvalError(_), EvalError(_)) => EvalErrrorNoChange,
-            (Build(b1), Build(b2)) if b1.success() && !b2.success() => NewBuildFailure,
-            (Build(b1), Build(b2)) if !b1.success() && b2.success() => FixedBuildFailure,
-            (Build(b1), Build(b2)) if !b1.success() && !b2.success() => BuildFailureNoChange,
+            (Build(b1), Build(b2)) if b1.hydra.success() && !b2.hydra.success() => NewBuildFailure,
+            (Build(b1), Build(b2)) if !b1.hydra.success() && b2.hydra.success() => {
+                FixedBuildFailure
+            }
+            (Build(b1), Build(b2)) if !b1.hydra.success() && !b2.hydra.success() => {
+                BuildFailureNoChange
+            }
             (Build(_), Build(_)) => BuildSuccessNoChange,
             (Unbuilt, Unbuilt) => UnbuiltNoChange,
             (Unbuilt, EvalError(_)) => UnbuiltToEvalError,
-            (Unbuilt, Build(b)) if b.success() => UnbuiltToBuildOk,
+            (Unbuilt, Build(b)) if b.hydra.success() => UnbuiltToBuildOk,
             (Unbuilt, Build(_)) => UnbuiltToBuildFailure,
             (_, Unbuilt) => NewUnbuiltAttr,
         }
@@ -356,16 +373,16 @@ impl<'a> HydraAttrStatus<'a> {
         use HydraAttrStatus::*;
         match self {
             EvalError(_) => AddedEvalError,
-            Build(b) if b.success() => AddedOk,
+            Build(b) if b.hydra.success() => AddedOk,
             Build(_) => AddedBuildFailure,
             Unbuilt => AddedUnbuilt,
         }
     }
     fn panic_if_aborted(&self, attr: &str) {
         if let HydraAttrStatus::Build(b) = self
-            && b.aborted()
+            && b.hydra.aborted()
         {
-            panic!("attribute {attr} aborted in, see {}", b.url());
+            panic!("attribute {attr} aborted in, see {}", b.hydra.url());
         }
     }
 }
@@ -401,7 +418,7 @@ impl<'a> HydraEvalSummary<'a> {
             };
             summary.entry(change).or_default().push(AttrInfo {
                 attr: attr.to_string(),
-                status: other_status.copied(),
+                status: other_status.cloned(),
             });
         }
         for (&attr, other_status) in &other.attrs {
@@ -413,7 +430,7 @@ impl<'a> HydraEvalSummary<'a> {
                     .or_default()
                     .push(AttrInfo {
                         attr: attr.to_string(),
-                        status: Some(*other_status),
+                        status: Some(other_status.clone()),
                     });
             }
         }
@@ -433,13 +450,15 @@ impl<'a> HydraEvalSummary<'a> {
                     let header = OnceCell::new();
                     let mut eval_summary: HashMap<String, Vec<String>> = HashMap::new();
                     for attr_info in attrs {
-                        match attr_info.status {
+                        match &attr_info.status {
                             Some(HydraAttrStatus::Build(b)) => {
                                 println!(
-                                    "  - [{}]({}) ([ROS]({}))",
+                                    "  - [{}]({}) ([ROS]({})) {} {}",
                                     attr_info.attr,
-                                    b.url(),
-                                    attr_info.ros_index_url()
+                                    b.hydra.url(),
+                                    attr_info.ros_index_url(),
+                                    b.eval.direct_deps,
+                                    b.eval.all_deps
                                 );
                             }
                             Some(HydraAttrStatus::EvalError(err)) => {
@@ -526,6 +545,7 @@ impl HydraEval {
                 )
             })
             .collect();
+        let job_deps = self.get_eval_job_deps();
         HydraEvalSummary {
             eval_id: self.eval_id,
             attrs: self
@@ -539,7 +559,28 @@ impl HydraEval {
                         .or_else(|| {
                             builds
                                 .get(format!("rosPackages.{attr}").as_str())
-                                .map(|build| (attr, HydraAttrStatus::Build(build.clone())))
+                                .map(|build| {
+                                    let cnts = if !build.success() {
+                                        // Calculate closure size only for failed build (if we want
+                                        // for all, we should optimize the implementation and
+                                        // perhaps calculate it in get_eval_job_deps())
+                                        dependent_job_counts(&build.drvpath, &job_deps)
+                                    } else {
+                                        vec![]
+                                    };
+                                    let direct_deps = *cnts.first().unwrap_or(&0);
+                                    let all_deps = *cnts.last().unwrap_or(&0);
+                                    (
+                                        attr,
+                                        HydraAttrStatus::Build(BuildInfo {
+                                            eval: EvalInfo {
+                                                direct_deps,
+                                                all_deps,
+                                            },
+                                            hydra: build.clone(),
+                                        }),
+                                    )
+                                })
                         })
                         .unwrap_or((attr, HydraAttrStatus::Unbuilt))
                 })

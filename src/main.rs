@@ -148,9 +148,9 @@ async fn nix_eval_jobs(
     Ok(jobs)
 }
 
-fn dependent_job_counts(build: &JsonValue, jobs: &HashMap<&str, Vec<&str>>) -> Vec<usize> {
+fn dependent_job_counts(drv: &DrvPath, jobs: &JobDeps) -> Vec<usize> {
     let mut deps = HashSet::new();
-    deps.insert(build["drvpath"].as_str().unwrap());
+    deps.insert(drv);
     let mut dep_counts = vec![];
     loop {
         let mut new_deps = HashSet::new();
@@ -571,7 +571,7 @@ impl HydraEval {
                 0, /* queued builds (value null) are not considered failed */
             ) != 0
         }) {
-            let cnts = dependent_job_counts(b, &job_deps);
+            let cnts = dependent_job_counts(b["drvpath"].as_str().unwrap(), &job_deps);
             failed_jobs.push(Job {
                 job: b["job"].as_str().unwrap(),
                 direct_deps: *cnts.first().unwrap_or(&0),

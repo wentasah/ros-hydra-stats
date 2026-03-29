@@ -497,6 +497,9 @@ struct Job<'a> {
     build_url: String,
 }
 
+type DrvPath = str;
+type JobDeps<'a> = HashMap<&'a DrvPath, Vec<&'a DrvPath>>;
+
 impl HydraEval {
     pub fn new(id: u64, hydra_builds: Vec<JsonValue>, eval_jobs: Vec<JsonValue>) -> Self {
         Self {
@@ -544,9 +547,8 @@ impl HydraEval {
         }
     }
 
-    fn get_failed_build_stats(&self) -> Vec<Job<'_>> {
-        type DrvPath = str;
-        let mut job_deps = HashMap::<&DrvPath, Vec<&DrvPath>>::new();
+    fn get_eval_job_deps(&self) -> JobDeps<'_> {
+        let mut job_deps = JobDeps::new();
         for job in &self.eval_jobs {
             if job.get("inputDrvs").is_none() {
                 continue; // eval error
@@ -558,7 +560,11 @@ impl HydraEval {
                     .push(job["drvPath"].as_str().unwrap());
             }
         }
+        job_deps
+    }
 
+    fn get_failed_build_stats(&self) -> Vec<Job<'_>> {
+        let job_deps = self.get_eval_job_deps();
         let mut failed_jobs = Vec::new();
         for b in self.hydra_builds.iter().filter(|build| {
             build["buildstatus"].as_i64().unwrap_or(

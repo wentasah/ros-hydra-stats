@@ -712,17 +712,33 @@ fn process_and_print_eval_stats(hydra_eval: HydraEval, cli: cli::EvalArgs) -> an
     Ok(())
 }
 
+async fn get_jobset_evals(
+    hydra: Arc<Hydra>,
+    jobset: &str,
+    use_cache: bool,
+) -> anyhow::Result<JsonValue> {
+    let mut errors = vec![];
+    for project in vec!["nix-ros-experiments", "nix-ros-overlay"] {
+        match hydra
+            .get_with_cachectrl(&format!("jobset/{project}/{jobset}/evals"), use_cache)
+            .await
+        {
+            Ok(evals) => return Ok(evals),
+            Err(e) => errors.push(e),
+        }
+    }
+    bail!(
+        "Cannot fetch {jobset} jobset because of the following errors:\n  {}",
+        errors.iter().map(|e| e.to_string()).join("\n  ")
+    );
+}
+
 async fn get_latest_jobset_eval(
     hydra: Arc<Hydra>,
     jobset: &str,
     use_cache: bool,
 ) -> anyhow::Result<u64> {
-    let develop_evals = hydra
-        .get_with_cachectrl(
-            &format!("jobset/nix-ros-experiments/{jobset}/evals"),
-            use_cache,
-        )
-        .await?;
+    let develop_evals = get_jobset_evals(hydra, jobset, use_cache).await?;
     Ok(develop_evals["evals"]
         .as_array()
         .unwrap()

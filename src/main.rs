@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Michal Sojka
+// SPDX-License-Identifier: AGPL-3.0
+
 use anyhow::bail;
 use clap::Parser;
 use futures::future::join_all;

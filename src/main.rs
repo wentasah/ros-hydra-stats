@@ -478,7 +478,8 @@ impl<'a> HydraEvalSummary<'a> {
                     });
             }
         }
-        println!("### Hydra build and evaluation statistics");
+        print!("### Hydra build and evaluation statistics");
+        println!("  <sub><sup>([source](https://github.com/wentasah/ros-hydra-stats))</sup></sub>");
         for change in CiChange::iter() {
             let list_attrs = change.get_bool("list_attrs").unwrap_or(true);
             let print_summary = change.get_bool("summary").unwrap_or(false);

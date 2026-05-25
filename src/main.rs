@@ -301,7 +301,10 @@ enum CiChange {
     FixedEvalError,
     #[strum(to_string = "✅ Fixed build failures")]
     FixedBuildFailure,
-    #[strum(to_string = "✅ Still succeeding builds", props(list_attrs = false))]
+    #[strum(
+        to_string = "✅ Still succeeding builds",
+        props(list_attrs = false, hydra_tab = "#tabs-still-succeed")
+    )]
     BuildSuccessNoChange,
     #[strum(to_string = "✅ Still unbuilt attributes", props(list_attrs = false))]
     UnbuiltNoChange,
@@ -314,7 +317,10 @@ enum CiChange {
         props(list_attrs = false, summary = true)
     )]
     EvalErrrorNoChange,
-    #[strum(to_string = "⚠️ Still failing builds", props(list_attrs = false))]
+    #[strum(
+        to_string = "⚠️ Still failing builds",
+        props(list_attrs = false, hydra_tab = "#tabs-still-fail")
+    )]
     BuildFailureNoChange,
     #[strum(to_string = "⚠️ Introduced unbuilt attributes")]
     NewUnbuiltAttr,
@@ -539,8 +545,10 @@ impl<'a> HydraEvalSummary<'a> {
                     }
                 } else {
                     println!(
-                        "[Hydra comparison](https://hydra.iid.ciirc.cvut.cz/eval/{}?compare={})",
-                        other.eval_id, self.eval_id
+                        "[Hydra comparison](https://hydra.iid.ciirc.cvut.cz/eval/{}?compare={}{})",
+                        other.eval_id,
+                        self.eval_id,
+                        change.get_str("hydra_tab").unwrap_or("")
                     );
                 }
                 println!("</details>\n");

@@ -243,7 +243,7 @@ struct HydraEval {
 struct HydraBuild {
     drvpath: String,
     finished: i8,
-    buildstatus: i8,
+    buildstatus: Option<i8>,
     id: u64,
 }
 
@@ -261,10 +261,10 @@ struct BuildInfo {
 
 impl HydraBuild {
     fn success(&self) -> bool {
-        self.finished == 1 && self.buildstatus == 0
+        self.finished == 1 && self.buildstatus.is_some_and(|bs| bs == 0)
     }
     fn aborted(&self) -> bool {
-        self.finished == 1 && self.buildstatus == 3
+        self.finished == 1 && self.buildstatus.is_some_and(|bs| bs == 3)
     }
     fn url(&self) -> String {
         format!("https://hydra.iid.ciirc.cvut.cz/build/{}", self.id)

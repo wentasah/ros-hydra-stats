@@ -541,14 +541,6 @@ type DrvPath = str;
 type JobDeps<'a> = HashMap<&'a DrvPath, Vec<&'a DrvPath>>;
 
 impl HydraEval {
-    pub fn new(id: u64, hydra_builds: Vec<JsonValue>, eval_jobs: Vec<JsonValue>) -> Self {
-        Self {
-            eval_id: id,
-            hydra_builds,
-            eval_jobs,
-        }
-    }
-
     fn summary(&'_ self) -> HydraEvalSummary<'_> {
         let builds: HashMap<&str, HydraBuild> = self
             .hydra_builds
@@ -722,7 +714,11 @@ async fn fetch_hydra_eval(
         .into_iter()
         .collect::<anyhow::Result<Vec<_>>>()?;
 
-    Ok(HydraEval::new(eval_id, hydra_builds, jobs?))
+    Ok(HydraEval {
+        eval_id,
+        hydra_builds,
+        eval_jobs: jobs?,
+    })
 }
 
 fn process_and_print_eval_stats(hydra_eval: HydraEval, cli: cli::EvalArgs) -> anyhow::Result<()> {

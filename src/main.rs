@@ -91,14 +91,17 @@ impl Hydra {
 }
 
 async fn nix_eval_jobs(
-    tarball: &str,
+    release_nix_tarball_url: &str,
+    tarball_url: &str,
     system: &str,
+    distro: Option<&str>,
     cross_system: Option<&str>,
     pb: &ProgressBar,
 ) -> anyhow::Result<Vec<JsonValue>> {
     let cache_path = CACHE_DIR.join(format!(
-        "{}_{system}_{cross_system:?}.jsonl",
-        tarball.replace("/", "_")
+        "{}_{}_{system}_{distro:?}_{cross_system:?}.jsonl",
+        release_nix_tarball_url.replace("/", "_"),
+        tarball_url.replace("/", "_")
     ));
     let jobs = if let Ok(cached) = fs::read_to_string(&cache_path).await {
         cached
@@ -110,10 +113,21 @@ async fn nix_eval_jobs(
         let mut nix_eval_jobs = Command::new("nix-eval-jobs");
         nix_eval_jobs
             .args([
+                "--force-recurse",
                 "--show-input-drvs",
                 "--expr",
-                format!("(import (fetchTarball \"{tarball}\") {{ system = \"{system}\";{} }}).rosPackages", cross_system
-                        .map(|s| format!(" crossSystem = {s};")).unwrap_or("".to_string())).as_str(),
+                format!(
+                    r#"
+import ''${{fetchTarball "{release_nix_tarball_url}"}}/release.nix'' {{
+  nix-ros-overlay = (fetchTarball "{tarball_url}");
+  system = "{system}";
+  {}
+}}"#,
+                    cross_system
+                        .map(|s| format!(" crossSystem = {s};"))
+                        .unwrap_or("".to_string())
+                )
+                .as_str(),
             ])
             .stdout(Stdio::piped())
             .stderr(Stdio::null());
@@ -564,30 +578,28 @@ impl HydraEval {
                         .as_str()
                         .map(|err| (attr, HydraAttrStatus::EvalError(err)))
                         .or_else(|| {
-                            builds
-                                .get(format!("rosPackages.{attr}").as_str())
-                                .map(|build| {
-                                    let cnts = if !build.success() {
-                                        // Calculate closure size only for failed build (if we want
-                                        // for all, we should optimize the implementation and
-                                        // perhaps calculate it in get_eval_job_deps())
-                                        dependent_job_counts(&build.drvpath, &job_deps)
-                                    } else {
-                                        vec![]
-                                    };
-                                    let direct_deps = *cnts.first().unwrap_or(&0);
-                                    let all_deps = *cnts.last().unwrap_or(&0);
-                                    (
-                                        attr,
-                                        HydraAttrStatus::Build(BuildInfo {
-                                            eval: EvalInfo {
-                                                direct_deps,
-                                                all_deps,
-                                            },
-                                            hydra: build.clone(),
-                                        }),
-                                    )
-                                })
+                            builds.get(format!("{attr}").as_str()).map(|build| {
+                                let cnts = if !build.success() {
+                                    // Calculate closure size only for failed build (if we want
+                                    // for all, we should optimize the implementation and
+                                    // perhaps calculate it in get_eval_job_deps())
+                                    dependent_job_counts(&build.drvpath, &job_deps)
+                                } else {
+                                    vec![]
+                                };
+                                let direct_deps = *cnts.first().unwrap_or(&0);
+                                let all_deps = *cnts.last().unwrap_or(&0);
+                                (
+                                    attr,
+                                    HydraAttrStatus::Build(BuildInfo {
+                                        eval: EvalInfo {
+                                            direct_deps,
+                                            all_deps,
+                                        },
+                                        hydra: build.clone(),
+                                    }),
+                                )
+                            })
                         })
                         .unwrap_or((attr, HydraAttrStatus::Unbuilt))
                 })
@@ -665,19 +677,25 @@ async fn fetch_hydra_eval(
     .buffer_unordered(10)
     .collect::<Vec<_>>();
 
-    let url = eval["jobsetevalinputs"]["nix-ros-overlay"]["uri"]
-        .as_str()
-        .expect("No nix-ros-overlay.uri in eval");
-    let rev = eval["jobsetevalinputs"]["nix-ros-overlay"]["revision"]
-        .as_str()
-        .expect("No nix-ros-overlay.revision in eval");
-    let tarball = format!("{url}/archive/{rev}.tar.gz");
+    let get_input_url = |input: &str| {
+        let url = eval["jobsetevalinputs"][input]["uri"]
+            .as_str()
+            .expect(format!("No {input}.uri in eval").as_str());
+        let rev = eval["jobsetevalinputs"][input]["revision"]
+            .as_str()
+            .expect(format!("No {input}.revision in eval").as_str());
+        format!("{url}/archive/{rev}.tar.gz")
+    };
+
+    let release_nix_tarball_url = get_input_url("nix-ros-hydra");
+    let tarball_url = get_input_url("nix-ros-overlay");
     let system = eval["jobsetevalinputs"]["system"]["value"]
         .as_str()
         .unwrap();
+    let distro = eval["jobsetevalinputs"]["distro"]["value"].as_str();
     let cross_system = eval["jobsetevalinputs"]["crossSystem"]["value"].as_str();
 
-    mp.println(format!("Tarball for evaluation: {tarball}"))?;
+    mp.println(format!("Tarball for evaluation: {tarball_url}"))?;
     let pb = mp.add(
         ProgressBar::new_spinner()
             .with_style(
@@ -689,7 +707,14 @@ async fn fetch_hydra_eval(
 
     let (hydra_builds, jobs) = join!(
         hydra_builds_future,
-        nix_eval_jobs(&tarball, system, cross_system, &pb)
+        nix_eval_jobs(
+            &release_nix_tarball_url,
+            &tarball_url,
+            system,
+            distro,
+            cross_system,
+            &pb
+        )
     );
     mp.remove(&pb);
 

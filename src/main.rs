@@ -252,6 +252,7 @@ fn print_eval_failure_summary(jobs: &Vec<JsonValue>) {
 
 struct HydraEval {
     eval_id: u64,
+    distro: Option<String>,
     hydra_builds: Vec<JsonValue>,
     eval_jobs: Vec<JsonValue>,
 }
@@ -349,15 +350,34 @@ struct AttrInfo<'a> {
 }
 
 impl<'a> AttrInfo<'a> {
-    fn ros_index_url(&self) -> String {
-        let (distro, pkg) = self.attr.split_once('.').unwrap_or(("", &self.attr));
-        format!(
+    fn ros_index_url(&self, eval_distro: Option<&str>) -> Option<String> {
+        let (distro, pkg) = match eval_distro {
+            Some(d) => (d, self.attr.as_str()),
+            None => {
+                let attrs: Vec<_> = self.attr.split('.').collect();
+                if let Some(&"rosPackages") = attrs.first() {
+                    (attrs[1], attrs[2])
+                } else {
+                    return None;
+                }
+            }
+        };
+        Some(format!(
             "https://index.ros.org/p/{}/#{distro}",
             pkg.replace("-", "_")
-        )
+        ))
     }
-    fn markdown_link(&self) -> String {
-        format!("[{}]({})", self.attr, self.ros_index_url())
+    fn ros_index_link(&self, text: &str, eval_distro: Option<&str>) -> String {
+        match self.ros_index_url(eval_distro) {
+            Some(url) => format!("[{}]({})", text, url),
+            None => "".to_owned(),
+        }
+    }
+    fn markdown_link(&self, eval_distro: Option<&str>) -> String {
+        match self.ros_index_url(eval_distro) {
+            Some(url) => format!("[{}]({})", self.attr, url),
+            None => self.attr.to_owned(),
+        }
     }
 }
 
@@ -406,6 +426,7 @@ impl<'a> HydraAttrStatus<'a> {
 
 struct HydraEvalSummary<'a> {
     eval_id: u64,
+    distro: Option<&'a str>,
     attrs: HashMap<&'a str, HydraAttrStatus<'a>>,
 }
 
@@ -474,10 +495,10 @@ impl<'a> HydraEvalSummary<'a> {
                                     println!("  |-----------|-----|-------|-----|");
                                 });
                                 println!(
-                                    "  | [{}]({}) | [ROS]({}) | {} | {} |",
+                                    "  | [{}]({}) | {} | {} | {} |",
                                     attr_info.attr,
                                     b.hydra.url(),
-                                    attr_info.ros_index_url(),
+                                    attr_info.ros_index_link("index", self.distro),
                                     b.eval.direct_deps,
                                     b.eval.all_deps
                                 );
@@ -494,7 +515,7 @@ impl<'a> HydraEvalSummary<'a> {
                                     });
                                     println!(
                                         "  | {} | {} |",
-                                        attr_info.markdown_link(),
+                                        attr_info.markdown_link(self.distro),
                                         eval_err_desc
                                     )
                                 } else {
@@ -505,7 +526,7 @@ impl<'a> HydraEvalSummary<'a> {
                                     eval_summary
                                         .entry(eval_err_desc)
                                         .or_default()
-                                        .push(attr_info.markdown_link());
+                                        .push(attr_info.markdown_link(self.distro));
                                 }
                             }
                             _ => println!("  - {}", attr_info.attr),
@@ -561,6 +582,7 @@ impl HydraEval {
         let job_deps = self.get_eval_job_deps();
         HydraEvalSummary {
             eval_id: self.eval_id,
+            distro: self.distro.as_deref(),
             attrs: self
                 .eval_jobs
                 .iter()
@@ -716,6 +738,7 @@ async fn fetch_hydra_eval(
 
     Ok(HydraEval {
         eval_id,
+        distro: distro.map(str::to_owned),
         hydra_builds,
         eval_jobs: jobs?,
     })

@@ -506,11 +506,11 @@ impl<'a> HydraEvalSummary<'a> {
                             Some(HydraAttrStatus::Built(b)) => {
                                 if print_deps {
                                     header.get_or_init(|| {
-                                        println!("  | Attribute | ROS | deps. | all |");
-                                        println!("  |-----------|-----|-------|-----|");
+                                        println!("| Attribute | ROS | deps. | all |");
+                                        println!("|-----------|-----|-------|-----|");
                                     });
                                     println!(
-                                        "  | [{}]({}) | {} | {} | {} |",
+                                        "| [{}]({}) | {} | {} | {} |",
                                         attr_info.attr,
                                         b.hydra.url(),
                                         attr_info.ros_index_link("index", self.distro),
@@ -519,11 +519,11 @@ impl<'a> HydraEvalSummary<'a> {
                                     );
                                 } else {
                                     header.get_or_init(|| {
-                                        println!("  | Attribute | ROS |");
-                                        println!("  |-----------|-----|");
+                                        println!("| Attribute | ROS |");
+                                        println!("|-----------|-----|");
                                     });
                                     println!(
-                                        "  | [{}]({}) | {} |",
+                                        "| [{}]({}) | {} |",
                                         attr_info.attr,
                                         b.hydra.url(),
                                         attr_info.ros_index_link("index", self.distro),
@@ -533,22 +533,22 @@ impl<'a> HydraEvalSummary<'a> {
                             Some(HydraAttrStatus::EvalError(err)) => {
                                 let eval_err_desc = EVAL_ERROR_ANALYZER
                                     .analyze(err)
-                                    .map(|reason| format!("``` {} ```", reason))
+                                    .map(|reason| format!("```{}```", reason))
                                     .unwrap_or("Unrecognized eval error".into());
                                 if !print_summary {
                                     header.get_or_init(|| {
-                                        println!("  | Attribute | Reason |");
-                                        println!("  |-----------|--------|");
+                                        println!("| Attribute | Reason |");
+                                        println!("|-----------|--------|");
                                     });
                                     println!(
-                                        "  | {} | {} |",
+                                        "| {} | {} |",
                                         attr_info.markdown_link(self.distro),
                                         eval_err_desc
                                     )
                                 } else {
                                     header.get_or_init(|| {
-                                        println!("  | Reason | Attributes |");
-                                        println!("  |--------|------------|");
+                                        println!("| Reason | Attributes |");
+                                        println!("|--------|------------|");
                                     });
                                     eval_summary
                                         .entry(eval_err_desc)
@@ -556,12 +556,12 @@ impl<'a> HydraEvalSummary<'a> {
                                         .push(attr_info.markdown_link(self.distro));
                                 }
                             }
-                            _ => println!("  - {}", attr_info.attr),
+                            _ => println!("- {}", attr_info.attr),
                         }
                     }
                     if print_summary {
                         for (reason, attrs) in eval_summary.iter().sorted_by_key(|x| x.0) {
-                            println!("  | {reason} | {} |", attrs.join(", "))
+                            println!("| {reason} | {} |", attrs.join(", "))
                         }
                     }
                 } else {

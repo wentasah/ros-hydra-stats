@@ -306,7 +306,7 @@ enum CiChange {
         props(list_attrs = false, hydra_tab = "#tabs-still-succeed")
     )]
     BuildSuccessNoChange,
-    #[strum(to_string = "✅ Still unbuilt attributes", props(list_attrs = false))]
+    #[strum(to_string = "✅ Still unbuilt attributes")]
     UnbuiltNoChange,
     #[strum(to_string = "✅ Starts building previously unbuilt attributes successfully")]
     UnbuiltToBuildOk,

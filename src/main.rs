@@ -293,13 +293,13 @@ impl HydraBuild {
     strum_macros::Display, strum_macros::EnumProperty, Eq, Hash, PartialEq, EnumIter, Clone, Copy,
 )]
 enum CiChange {
-    #[strum(to_string = "✅ Added successfully")]
+    #[strum(to_string = "✅ Added successfully", props(deps = false))]
     AddedOk,
     #[strum(to_string = "✅ Removed")]
     Removed,
-    #[strum(to_string = "✅ Fixed eval errors")]
+    #[strum(to_string = "✅ Fixed eval errors", props(deps = false))]
     FixedEvalError,
-    #[strum(to_string = "✅ Fixed build failures")]
+    #[strum(to_string = "✅ Fixed build failures", props(deps = false))]
     FixedBuildFailure,
     #[strum(
         to_string = "✅ Still succeeding builds",
@@ -489,6 +489,7 @@ impl<'a> HydraEvalSummary<'a> {
         for change in CiChange::iter() {
             let list_attrs = change.get_bool("list_attrs").unwrap_or(true);
             let print_summary = change.get_bool("summary").unwrap_or(false);
+            let print_deps = change.get_bool("deps").unwrap_or(true);
             summary.entry(change).and_modify(|attrs| {
                 let count = attrs.len();
                 attrs.sort_by(|a, b| a.attr.cmp(&b.attr));
@@ -503,18 +504,31 @@ impl<'a> HydraEvalSummary<'a> {
                     for attr_info in attrs {
                         match &attr_info.status {
                             Some(HydraAttrStatus::Built(b)) => {
-                                header.get_or_init(|| {
-                                    println!("  | Attribute | ROS | deps. | all |");
-                                    println!("  |-----------|-----|-------|-----|");
-                                });
-                                println!(
-                                    "  | [{}]({}) | {} | {} | {} |",
-                                    attr_info.attr,
-                                    b.hydra.url(),
-                                    attr_info.ros_index_link("index", self.distro),
-                                    b.eval.direct_deps,
-                                    b.eval.all_deps
-                                );
+                                if print_deps {
+                                    header.get_or_init(|| {
+                                        println!("  | Attribute | ROS | deps. | all |");
+                                        println!("  |-----------|-----|-------|-----|");
+                                    });
+                                    println!(
+                                        "  | [{}]({}) | {} | {} | {} |",
+                                        attr_info.attr,
+                                        b.hydra.url(),
+                                        attr_info.ros_index_link("index", self.distro),
+                                        b.eval.direct_deps,
+                                        b.eval.all_deps
+                                    );
+                                } else {
+                                    header.get_or_init(|| {
+                                        println!("  | Attribute | ROS |");
+                                        println!("  |-----------|-----|");
+                                    });
+                                    println!(
+                                        "  | [{}]({}) | {} |",
+                                        attr_info.attr,
+                                        b.hydra.url(),
+                                        attr_info.ros_index_link("index", self.distro),
+                                    );
+                                }
                             }
                             Some(HydraAttrStatus::EvalError(err)) => {
                                 let eval_err_desc = EVAL_ERROR_ANALYZER

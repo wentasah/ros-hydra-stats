@@ -261,7 +261,7 @@ struct HydraEval {
 struct HydraBuild {
     drvpath: String,
     finished: i8,
-    buildstatus: i8,
+    buildstatus: Option<i8>,
     id: u64,
 }
 
@@ -279,10 +279,10 @@ struct BuildInfo {
 
 impl HydraBuild {
     fn success(&self) -> bool {
-        self.finished == 1 && self.buildstatus == 0
+        self.finished == 1 && self.buildstatus.is_some_and(|bs| bs == 0)
     }
     fn aborted(&self) -> bool {
-        self.finished == 1 && self.buildstatus == 3
+        self.finished == 1 && self.buildstatus.is_some_and(|bs| bs == 3)
     }
     fn url(&self) -> String {
         format!("https://hydra.iid.ciirc.cvut.cz/build/{}", self.id)
@@ -341,6 +341,8 @@ enum CiChange {
     UnbuiltToEvalError,
     #[strum(to_string = "❌ Starts building previously unbuilt attributes with build failures")]
     UnbuiltToBuildFailure,
+    #[strum(to_string = "❔ Build in progress")]
+    BuildInProgress,
 }
 
 #[derive(Clone)]
@@ -348,6 +350,7 @@ enum HydraAttrStatus<'a> {
     EvalError(&'a str),
     Build(BuildInfo),
     Unbuilt,
+    InProgress,
 }
 
 struct AttrInfo<'a> {
@@ -409,6 +412,8 @@ impl<'a> HydraAttrStatus<'a> {
             (Unbuilt, Build(b)) if b.hydra.success() => UnbuiltToBuildOk,
             (Unbuilt, Build(_)) => UnbuiltToBuildFailure,
             (_, Unbuilt) => NewUnbuiltAttr,
+            (_, InProgress) => BuildInProgress,
+            (InProgress, _) => BuildInProgress,
         }
     }
     fn ci_chage_as_new(&self) -> CiChange {
@@ -419,6 +424,7 @@ impl<'a> HydraAttrStatus<'a> {
             Build(b) if b.hydra.success() => AddedOk,
             Build(_) => AddedBuildFailure,
             Unbuilt => AddedUnbuilt,
+            InProgress => BuildInProgress,
         }
     }
     fn panic_if_aborted(&self, attr: &str) {
@@ -451,7 +457,7 @@ fn _escape_markdown(input: &str) -> String {
 }
 
 impl<'a> HydraEvalSummary<'a> {
-    fn compare(&self, other: &HydraEvalSummary) {
+    fn compare(&self, other: &HydraEvalSummary) -> anyhow::Result<()> {
         let mut summary: HashMap<CiChange, Vec<AttrInfo>> = HashMap::new();
         for (&attr, status) in &self.attrs {
             status.panic_if_aborted(attr);
@@ -555,6 +561,13 @@ impl<'a> HydraEvalSummary<'a> {
                 println!("</details>\n");
             });
         }
+        let in_progress_cnt = summary
+            .get(&CiChange::BuildInProgress)
+            .map_or(0, |attrs| attrs.len());
+        match in_progress_cnt {
+            0 => Ok(()),
+            _ => bail!("{in_progress_cnt} builds still in progress"),
+        }
     }
 }
 
@@ -612,16 +625,20 @@ impl HydraEval {
                                 };
                                 let direct_deps = *cnts.first().unwrap_or(&0);
                                 let all_deps = *cnts.last().unwrap_or(&0);
-                                (
-                                    attr,
-                                    HydraAttrStatus::Build(BuildInfo {
-                                        eval: EvalInfo {
-                                            direct_deps,
-                                            all_deps,
-                                        },
-                                        hydra: build.clone(),
-                                    }),
-                                )
+                                if build.buildstatus.is_none() {
+                                    (attr, HydraAttrStatus::InProgress)
+                                } else {
+                                    (
+                                        attr,
+                                        HydraAttrStatus::Build(BuildInfo {
+                                            eval: EvalInfo {
+                                                direct_deps,
+                                                all_deps,
+                                            },
+                                            hydra: build.clone(),
+                                        }),
+                                    )
+                                }
                             })
                         })
                         .unwrap_or((attr, HydraAttrStatus::Unbuilt))
@@ -665,7 +682,7 @@ impl HydraEval {
         failed_jobs
     }
 
-    fn compare(&self, other: &Self) {
+    fn compare(&self, other: &Self) -> anyhow::Result<()> {
         self.summary().compare(&other.summary())
     }
 }
@@ -895,8 +912,7 @@ async fn compare_evals(
     .await
     .into_iter()
     .collect::<Result<Vec<_>, _>>()?;
-    evals[0].compare(&evals[1]);
-    Ok(())
+    evals[0].compare(&evals[1])
 }
 
 async fn compare_jobsets(
@@ -921,8 +937,7 @@ async fn compare_jobsets(
     .await
     .into_iter()
     .collect::<Result<Vec<_>, _>>()?;
-    evals[0].compare(&evals[1]);
-    Ok(())
+    evals[0].compare(&evals[1])
 }
 
 #[tokio::main]

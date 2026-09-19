@@ -610,11 +610,14 @@ impl HydraEval {
                 .iter()
                 .map(|job| {
                     let attr = job["attr"].as_str().unwrap();
-                    job["error"]
-                        .as_str()
-                        .map(|err| (attr, HydraAttrStatus::EvalError(err)))
-                        .or_else(|| {
-                            builds.get(format!("{attr}").as_str()).map(|build| {
+                    let attr_status = if let Some(err) = job["error"].as_str() {
+                        HydraAttrStatus::EvalError(err)
+                    } else {
+                        match builds.get(attr) {
+                            Some(build) if build.buildstatus.is_none() => {
+                                HydraAttrStatus::InProgress
+                            }
+                            Some(build) => {
                                 let cnts = if !build.success() {
                                     // Calculate closure size only for failed build (if we want
                                     // for all, we should optimize the implementation and
@@ -625,23 +628,18 @@ impl HydraEval {
                                 };
                                 let direct_deps = *cnts.first().unwrap_or(&0);
                                 let all_deps = *cnts.last().unwrap_or(&0);
-                                if build.buildstatus.is_none() {
-                                    (attr, HydraAttrStatus::InProgress)
-                                } else {
-                                    (
-                                        attr,
-                                        HydraAttrStatus::Build(BuildInfo {
-                                            eval: EvalInfo {
-                                                direct_deps,
-                                                all_deps,
-                                            },
-                                            hydra: build.clone(),
-                                        }),
-                                    )
-                                }
-                            })
-                        })
-                        .unwrap_or((attr, HydraAttrStatus::Unbuilt))
+                                HydraAttrStatus::Build(BuildInfo {
+                                    eval: EvalInfo {
+                                        direct_deps,
+                                        all_deps,
+                                    },
+                                    hydra: build.clone(),
+                                })
+                            }
+                            None => HydraAttrStatus::Unbuilt,
+                        }
+                    };
+                    (attr, attr_status)
                 })
                 .collect(),
         }

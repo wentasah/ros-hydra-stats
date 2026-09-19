@@ -348,7 +348,7 @@ enum CiChange {
 #[derive(Clone)]
 enum HydraAttrStatus<'a> {
     EvalError(&'a str),
-    Build(BuildInfo),
+    Built(BuildInfo),
     Unbuilt,
     InProgress,
 }
@@ -395,22 +395,22 @@ impl<'a> HydraAttrStatus<'a> {
         use CiChange::*;
         use HydraAttrStatus::*;
         match (self, other) {
-            (Build(_), EvalError(_)) => NewEvalError,
-            (EvalError(_), Build(b)) if !b.hydra.success() => FixedEvalErrorBuildFails,
-            (EvalError(_), Build(_)) => FixedEvalError,
+            (Built(_), EvalError(_)) => NewEvalError,
+            (EvalError(_), Built(b)) if !b.hydra.success() => FixedEvalErrorBuildFails,
+            (EvalError(_), Built(_)) => FixedEvalError,
             (EvalError(_), EvalError(_)) => EvalErrrorNoChange,
-            (Build(b1), Build(b2)) if b1.hydra.success() && !b2.hydra.success() => NewBuildFailure,
-            (Build(b1), Build(b2)) if !b1.hydra.success() && b2.hydra.success() => {
+            (Built(b1), Built(b2)) if b1.hydra.success() && !b2.hydra.success() => NewBuildFailure,
+            (Built(b1), Built(b2)) if !b1.hydra.success() && b2.hydra.success() => {
                 FixedBuildFailure
             }
-            (Build(b1), Build(b2)) if !b1.hydra.success() && !b2.hydra.success() => {
+            (Built(b1), Built(b2)) if !b1.hydra.success() && !b2.hydra.success() => {
                 BuildFailureNoChange
             }
-            (Build(_), Build(_)) => BuildSuccessNoChange,
+            (Built(_), Built(_)) => BuildSuccessNoChange,
             (Unbuilt, Unbuilt) => UnbuiltNoChange,
             (Unbuilt, EvalError(_)) => UnbuiltToEvalError,
-            (Unbuilt, Build(b)) if b.hydra.success() => UnbuiltToBuildOk,
-            (Unbuilt, Build(_)) => UnbuiltToBuildFailure,
+            (Unbuilt, Built(b)) if b.hydra.success() => UnbuiltToBuildOk,
+            (Unbuilt, Built(_)) => UnbuiltToBuildFailure,
             (_, Unbuilt) => NewUnbuiltAttr,
             (_, InProgress) => BuildInProgress,
             (InProgress, _) => BuildInProgress,
@@ -421,14 +421,14 @@ impl<'a> HydraAttrStatus<'a> {
         use HydraAttrStatus::*;
         match self {
             EvalError(_) => AddedEvalError,
-            Build(b) if b.hydra.success() => AddedOk,
-            Build(_) => AddedBuildFailure,
+            Built(b) if b.hydra.success() => AddedOk,
+            Built(_) => AddedBuildFailure,
             Unbuilt => AddedUnbuilt,
             InProgress => BuildInProgress,
         }
     }
     fn panic_if_aborted(&self, attr: &str) {
-        if let HydraAttrStatus::Build(b) = self
+        if let HydraAttrStatus::Built(b) = self
             && b.hydra.aborted()
         {
             panic!("attribute {attr} aborted in, see {}", b.hydra.url());
@@ -502,7 +502,7 @@ impl<'a> HydraEvalSummary<'a> {
                     let mut eval_summary: HashMap<String, Vec<String>> = HashMap::new();
                     for attr_info in attrs {
                         match &attr_info.status {
-                            Some(HydraAttrStatus::Build(b)) => {
+                            Some(HydraAttrStatus::Built(b)) => {
                                 header.get_or_init(|| {
                                     println!("  | Attribute | ROS | deps. | all |");
                                     println!("  |-----------|-----|-------|-----|");
@@ -628,7 +628,7 @@ impl HydraEval {
                                 };
                                 let direct_deps = *cnts.first().unwrap_or(&0);
                                 let all_deps = *cnts.last().unwrap_or(&0);
-                                HydraAttrStatus::Build(BuildInfo {
+                                HydraAttrStatus::Built(BuildInfo {
                                     eval: EvalInfo {
                                         direct_deps,
                                         all_deps,
